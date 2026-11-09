@@ -260,6 +260,12 @@ chmod +x .githooks/pre-push && git config core.hooksPath .githooks
 - **Git:** diffs ignore the user's diff settings (external diff, textconv, prefixes, path quoting),
   and file names with spaces, tabs or non-ASCII characters are read correctly.
 
+## Releasing
+
+Bump `version` in `package.json`, rebuild (`pnpm build`), commit, then publish a GitHub release
+tagged `v<version>`. The `release` workflow tests and publishes to npm with provenance, through npm
+trusted publishing (no token).
+
 ## Credits
 
 The metric is by Alberto Savoia and Bob Evans (crap4j, 2007). Robert C. Martin's
