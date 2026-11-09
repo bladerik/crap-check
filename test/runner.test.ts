@@ -13,25 +13,47 @@ describe('test commands', () => {
 	});
 });
 
-describe('tests importing a change', () => {
+describe('tests reaching a change', () => {
 	const files: Record<string, string> = {
 		'src/price.test.ts': "import { price } from '../src/price';",
 		'src/other.test.ts': "import { priceList } from './priceList.js';",
 		'convex/__tests__/x.test.ts': 'import { run } from "../recipes/tasks/price.js";',
 		'convex/__tests__/y.test.ts': 'await t.mutation(internal.recipes.tasks.price.store, {});',
 		'convex/__tests__/z.test.ts': 'const priceless = 1; // a longer word does not count',
-		'src/price.ts': "export const price = () => 1; // not a test file, ignored"
+		'convex/__tests__/checkout.test.ts': "import { start } from '../checkout';",
+		'convex/checkout.ts': 'await ctx.runMutation(internal.price.charge, {});',
+		'convex/_generated/api.d.ts': "import type * as price from '../price.js';",
+		'convex/__tests__/everything.test.ts': "import { api } from '../_generated/api';",
+		'src/price.ts': 'export const price = () => 1;'
 	};
+	const search = (changed: string[], depth?: number) =>
+		testsImporting({
+			packageFiles: Object.keys(files),
+			testGlobs: DEFAULT_TEST_GLOBS,
+			changed,
+			read: (file) => files[file],
+			isLinkingSource: (file) => !file.includes('_generated'),
+			depth
+		});
 
-	it('finds test files that import the changed module or reach it through a generated API', () => {
-		expect(testsImporting(Object.keys(files), DEFAULT_TEST_GLOBS, ['src/price.ts'], (file) => files[file])).toEqual([
+	it('finds tests that import the changed module or reach it through a generated API name', () => {
+		expect(search(['src/price.ts'], 1)).toEqual([
 			'src/price.test.ts',
 			'convex/__tests__/x.test.ts',
 			'convex/__tests__/y.test.ts'
 		]);
 	});
 
-	it('returns nothing when no test imports the change', () => {
-		expect(testsImporting(Object.keys(files), DEFAULT_TEST_GLOBS, ['src/cart.ts'], (file) => files[file])).toEqual([]);
+	it('by default also finds tests of a module that uses the changed one, but not via generated files', () => {
+		expect(search(['src/price.ts'])).toEqual([
+			'src/price.test.ts',
+			'convex/__tests__/x.test.ts',
+			'convex/__tests__/y.test.ts',
+			'convex/__tests__/checkout.test.ts'
+		]);
+	});
+
+	it('returns nothing when no test reaches the change', () => {
+		expect(search(['src/cart.ts'])).toEqual([]);
 	});
 });

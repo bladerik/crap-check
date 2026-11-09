@@ -120,6 +120,24 @@ describe('crap-check', () => {
 		expect(output.join('\n')).toContain('no coverage report at lcov.info');
 	});
 
+	it('with --ref judges the pushed commit, not an uncommitted fix in the working tree', () => {
+		write('src/price.ts', branchy);
+		commit('untested price');
+		write('src/price.ts', 'export function price() {\n\treturn 1;\n}\n');
+		expect(run('--no-run', '--ref', 'HEAD')).toBe(1);
+		expect(output.join('\n')).toContain('`src/price.ts:1` price | ✗ new');
+		expect(output.join('\n')).toMatch(/the working tree differs from HEAD in src\/price\.ts/);
+		expect(run('--no-run')).toBe(0); // without --ref the working tree counts
+	});
+
+	it('scores only files inside a configured package', () => {
+		write('crap.config.json', JSON.stringify({ base: 'main', packages: [{ root: 'app', coverage: 'lcov.info' }] }));
+		write('tools/price.ts', branchy);
+		commit('untested code outside the package');
+		expect(run('--no-run')).toBe(0);
+		expect(output.join('\n')).toContain('No changed JavaScript or TypeScript functions.');
+	});
+
 	it('exits 2 with a message when something is wrong', () => {
 		expect(run('--base', 'no-such-branch', '--no-run')).toBe(2);
 		expect(output.join('\n')).toMatch(/^crap-check: /);

@@ -6,8 +6,8 @@ export const repoRoot = (cwd) => git(cwd, ['rev-parse', '--show-toplevel']).trim
 export function gitCommonDir(cwd) {
     return git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim();
 }
-export function mergeBase(cwd, base) {
-    return git(cwd, ['merge-base', base, 'HEAD']).trim();
+export function mergeBase(cwd, base, ref = 'HEAD') {
+    return git(cwd, ['merge-base', base, ref]).trim();
 }
 export function headSha(cwd) {
     return git(cwd, ['rev-parse', 'HEAD']).trim();
@@ -59,7 +59,13 @@ export function parseUnifiedDiff(diff) {
     }
     return changes.filter((change) => change.file !== '');
 }
-/** Files changed between `base` and the working tree (committed or not). */
-export function changedFiles(cwd, base) {
-    return parseUnifiedDiff(git(cwd, ['diff', '-U0', '-M', '--no-color', base]));
+/** Files changed between `base` and `ref`, or the working tree (committed or not) without `ref`. */
+export function changedFiles(cwd, base, ref) {
+    return parseUnifiedDiff(git(cwd, ['diff', '-U0', '-M', '--no-color', base, ...(ref ? [ref] : [])]));
+}
+/** Which of `files` differ between `ref` and the working tree. */
+export function filesDifferingFrom(cwd, ref, files) {
+    if (files.length === 0)
+        return [];
+    return git(cwd, ['diff', '--name-only', ref, '--', ...files]).split('\n').filter(Boolean);
 }

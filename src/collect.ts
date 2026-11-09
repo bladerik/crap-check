@@ -7,6 +7,7 @@ import path from 'node:path';
 import { packageFor, type Config, type PackageConfig } from './config.js';
 import { mergeCoverage, readCoverage, type LineCoverage } from './coverage.js';
 import { buildCommand, DEFAULT_TEST_GLOBS, relativeToPackage, runTests, testsImporting } from './runner.js';
+import { sourceFileFilter } from './tiers.js';
 
 export type CollectOptions = {
 	root: string;
@@ -22,22 +23,33 @@ export type CollectOptions = {
 type Collected = { coverage: LineCoverage; warnings: string[] };
 
 function testsFor(options: CollectOptions, pkg: PackageConfig, own: string[]): string[] {
-	const packageFiles = relativeToPackage(options.root, pkg.root, options.trackedFiles().filter((file) => packageFor(options.config, file) === pkg));
+	const repoFiles = options.trackedFiles().filter((file) => packageFor(options.config, file) === pkg);
 	const packageRoot = path.resolve(options.root, pkg.root);
-	const read = (file: string) => {
-		const absolute = path.resolve(packageRoot, file);
-		return fs.existsSync(absolute) ? fs.readFileSync(absolute, 'utf8') : undefined;
-	};
-	return testsImporting(packageFiles, pkg.tests ?? DEFAULT_TEST_GLOBS, own, read);
+	const isSource = sourceFileFilter(options.config);
+	return testsImporting({
+		packageFiles: relativeToPackage(options.root, pkg.root, repoFiles),
+		testGlobs: pkg.tests ?? DEFAULT_TEST_GLOBS,
+		changed: relativeToPackage(options.root, pkg.root, own),
+		read: (file) => {
+			const absolute = path.resolve(packageRoot, file);
+			return fs.existsSync(absolute) ? fs.readFileSync(absolute, 'utf8') : undefined;
+		},
+		isLinkingSource: (file) => isSource(path.relative(options.root, path.resolve(packageRoot, file))),
+		depth: pkg.testsDepth
+	});
 }
 
 function runPackage(options: CollectOptions, pkg: PackageConfig, report: string, warnings: string[]) {
 	const command = pkg[options.mode];
-	if (!options.run || !command) return;
+	if (!options.run) return;
+	if (!command) {
+		if (options.mode === 'testAll') warnings.push(`${pkg.root} has no "testAll": its functions count as untested here`);
+		return;
+	}
+	fs.rmSync(report, { force: true }); // never read a report left by an earlier run
 	const own = options.files.filter((file) => packageFor(options.config, file) === pkg);
 	const tests = command.includes('{tests}') ? testsFor(options, pkg, own) : [];
-	if (command.includes('{tests}') && tests.length === 0) return; // nothing imports the change: untested
-	fs.rmSync(report, { force: true }); // never read a report left by an earlier run
+	if (command.includes('{tests}') && tests.length === 0) return; // no test reaches the change: untested
 	const result = runTests(buildCommand(command, relativeToPackage(options.root, pkg.root, own), tests), path.resolve(options.root, pkg.root));
 	if (!result.ok) {
 		const tail = result.output.trim().split('\n').slice(-8).join('\n');

@@ -26,17 +26,25 @@ function referencePattern(file) {
     const stem = escapeRegExp(path.basename(file).replace(/\.[cm]?[jt]sx?$/, ''));
     return new RegExp(`(?:^|[^A-Za-z0-9_$])${stem}(?:[^A-Za-z0-9_$]|$)`);
 }
+const mentionsAny = (text, patterns) => text !== undefined && patterns.some((pattern) => pattern.test(text));
 /**
- * Test files (package-relative) that mention one of the changed files by name. A cheap stand-in
- * for the import graph when the runner's own one reaches every test.
+ * Test files that reach a changed module by name, directly or through `depth - 1` modules that
+ * mention it. A cheap stand-in for the import graph when the runner's own one reaches every test
+ * (a generated API that imports everything); generated files are skipped as links for that reason.
  */
-export function testsImporting(packageFiles, testGlobs, changed, read) {
-    const isTest = picomatch(testGlobs, { dot: true });
-    const patterns = changed.map(referencePattern);
-    return packageFiles.filter((file) => {
-        if (!isTest(file))
-            return false;
-        const text = read(file);
-        return text !== undefined && patterns.some((pattern) => pattern.test(text));
-    });
+export function testsImporting(search) {
+    const isTest = picomatch(search.testGlobs, { dot: true });
+    const tests = search.packageFiles.filter(isTest);
+    const sources = search.packageFiles.filter((file) => !isTest(file) && search.isLinkingSource(file));
+    const found = new Set();
+    let modules = search.changed;
+    for (let level = 0; level < (search.depth ?? 2) && modules.length > 0; level++) {
+        const patterns = modules.map(referencePattern);
+        for (const test of tests)
+            if (mentionsAny(search.read(test), patterns))
+                found.add(test);
+        const seen = new Set(modules);
+        modules = sources.filter((file) => !seen.has(file) && mentionsAny(search.read(file), patterns));
+    }
+    return tests.filter((test) => found.has(test));
 }

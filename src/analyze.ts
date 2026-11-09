@@ -5,7 +5,7 @@
 import path from 'node:path';
 import type { Baseline } from './baseline.js';
 import { judge, touchedFunctions, type BaseFunction, type Measured, type Verdict } from './compare.js';
-import type { Config, ReviewTier } from './config.js';
+import { packageFor, type Config, type ReviewTier } from './config.js';
 import { functionCoverage, looksSourceMapped, type LineCoverage } from './coverage.js';
 import { crapScore, round1 } from './crap.js';
 import { findFunctions } from './functions.js';
@@ -68,7 +68,7 @@ export function checkChange(input: CheckInput): CheckResult {
 	const isSource = sourceFileFilter(input.config);
 	const warnings: string[] = [];
 	const verdicts = input.changes
-		.filter((change) => isSource(change.file))
+		.filter((change) => isSource(change.file) && packageFor(input.config, change.file))
 		.flatMap((change) => checkFile(input, change, warnings))
 		.sort((a, b) => severity[a.status] - severity[b.status] || b.crap - a.crap);
 	const changedFiles = input.changes.map((change) => change.file);

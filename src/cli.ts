@@ -11,7 +11,7 @@ import { baselinePath, readBaseline, writeBaseline, type Baseline } from './base
 import { loadConfig, packageFor, type Config } from './config.js';
 import type { LineCoverage } from './coverage.js';
 import { collectCoverage } from './collect.js';
-import { changedFiles, fileAt, gitCommonDir, headSha, mergeBase, repoRoot } from './git.js';
+import { changedFiles, fileAt, filesDifferingFrom, gitCommonDir, headSha, mergeBase, repoRoot } from './git.js';
 import { jsonReport, markdownReport, topReport } from './report.js';
 import { sourceFileFilter } from './tiers.js';
 import { execFileSync } from 'node:child_process';
@@ -25,6 +25,7 @@ type Options = {
 	config?: string;
 	baselineFile?: string;
 	output?: string;
+	ref?: string;
 	limit: number;
 };
 
@@ -46,6 +47,7 @@ export function parseArgs(argv: string[]): Options {
 		else if (arg === '--base') options.base = valueOf(i++);
 		else if (arg === '--config') options.config = valueOf(i++);
 		else if (arg === '--baseline') options.baselineFile = valueOf(i++);
+		else if (arg === '--ref') options.ref = valueOf(i++);
 		else if (arg === '--output') options.output = valueOf(i++);
 		else if (arg === '--limit') options.limit = Number(valueOf(i++));
 		else throw new UsageError(`Unknown argument: ${arg}`);
@@ -96,15 +98,26 @@ function runAll(root: string, config: Config, options: Options): number {
 	return 0;
 }
 
+/** With `--ref`, sources come from that commit; tests still run on the working tree, so say when they differ. */
+function refWarnings(root: string, ref: string | undefined, sources: string[]): string[] {
+	if (!ref) return [];
+	const differing = filesDifferingFrom(root, ref, sources);
+	return differing.length
+		? [`the working tree differs from ${ref.slice(0, 12)} in ${differing.join(', ')}; coverage comes from the working tree`]
+		: [];
+}
+
 function runCheck(root: string, config: Config, options: Options): number {
-	const baseSha = mergeBase(root, options.base ?? config.base);
-	const changes = changedFiles(root, baseSha);
+	const baseSha = mergeBase(root, options.base ?? config.base, options.ref);
+	const changes = changedFiles(root, baseSha, options.ref);
 	const isSource = sourceFileFilter(config);
-	const read = readCurrent(root);
+	const read = options.ref ? (file: string) => fileAt(root, options.ref!, file) : readCurrent(root);
 	const sources = changes.map((change) => change.file).filter((file) => isSource(file) && read(file) !== undefined);
-	const { coverage, warnings } = sources.length
+	const collected = sources.length
 		? collectCoverage({ root, config, files: sources, mode: 'test', run: options.run, trackedFiles: trackedFiles(root) })
 		: { coverage: new Map() as LineCoverage, warnings: [] as string[] };
+	const { coverage } = collected;
+	const warnings = [...refWarnings(root, options.ref, sources), ...collected.warnings];
 	const baseline = readBaseline(options.baselineFile ?? baselinePath(gitCommonDir(root), baseSha));
 	const result = checkChange({ repoRoot: root, config, changes, coverage, readCurrent: read, readBase: (file) => fileAt(root, baseSha, file), baseline });
 	result.warnings.unshift(...warnings);

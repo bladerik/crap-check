@@ -13,6 +13,8 @@ export type PackageConfig = {
 	test?: string;
 	/** Globs of test files, relative to `root`, searched for `{tests}`. */
 	tests?: string[];
+	/** `{tests}`: 1 = tests that mention the changed module, 2 (default) = also through one module between. */
+	testsDepth?: number;
 	/** Runs the whole test suite with coverage, for `crap-check baseline` and `--all`. */
 	testAll?: string;
 	/** Coverage report the test command writes (LCOV or istanbul JSON), relative to `root`. */
