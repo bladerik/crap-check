@@ -4,7 +4,7 @@
  */
 import path from 'node:path';
 import type { Baseline } from './baseline.js';
-import { judge, pairFunctions, touchedFunctions, withoutCoverage, type BaseFunction, type Match, type Measured, type Verdict } from './compare.js';
+import { judge, needsCoverage, pairFunctions, touchedFunctions, withoutCoverage, type BaseFunction, type Match, type Measured, type Verdict } from './compare.js';
 import { packageFor, type Config, type ReviewTier } from './config.js';
 import { functionCoverage, looksSourceMapped, type LineCoverage } from './coverage.js';
 import { crapScore, round1 } from './crap.js';
@@ -121,15 +121,18 @@ function matchFor(view: FileView, fn: Measured, moves: Map<Measured, BaseFunctio
 
 const severity = { fail: 0, unmeasured: 1, warn: 2, ok: 3 } as const;
 
-/** A function in a package without a coverage report: 0% would be a guess, so no verdict. */
+/**
+ * A function in a package whose run wrote no coverage report. Only a verdict coverage could change
+ * becomes "not measured" (0% would be a guess); one that holds at any coverage stands, without
+ * tests. Files another run decided keep its verdict.
+ */
 function unmeasuredIn(input: CheckInput): (verdict: Verdict) => Verdict {
 	const roots = new Set(input.unmeasured ?? []);
-	// A verdict decided without tests needs no report.
-	const tested = (file: string) => (input.coverageOf?.(file) ?? 'full') !== 'none';
-	return (verdict) =>
-		roots.has(packageFor(input.config, verdict.file)?.root ?? '') && tested(verdict.file)
-			? { ...verdict, status: 'unmeasured', reason: 'no coverage report' }
-			: verdict;
+	const fromThatRun = (file: string) => (input.coverageOf?.(file) ?? 'full') === 'full';
+	return (verdict) => {
+		if (!roots.has(packageFor(input.config, verdict.file)?.root ?? '') || !fromThatRun(verdict.file)) return verdict;
+		return needsCoverage(verdict, input.config.threshold) ? { ...verdict, status: 'unmeasured', reason: 'no coverage report' } : withoutCoverage(verdict);
+	};
 }
 
 /**

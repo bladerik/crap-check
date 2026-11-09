@@ -411,6 +411,19 @@ describe('running tests only where coverage could change a verdict', () => {
 			expect(output.join('\n')).toContain('| 42.0 | 6 | 0% | `b/price.ts:1` price | ✗ new: new function over 30 |');
 		});
 
+		it('lets a full run without a report leave only what coverage could change unmeasured', () => {
+			const huge = `export function huge(x) {\n${Array.from({ length: 31 }, (_, i) => `\tif (x === ${i}) return ${i};`).join('\n')}\n\treturn -1;\n}\n`;
+			config({ testFirst: writes(full, 'first'), test: 'true' });
+			write('src/price.ts', branchy + huge);
+			write('src/other.ts', branchy.replace('price', 'other'));
+			commit('settled file with a hopeless function, and a file sent on');
+			expect(run()).toBe(1);
+			const text = output.join('\n');
+			expect(text).toContain('| 6.0 | 6 | 100% | `src/price.ts:1` price | ✓ new |');
+			expect(text).toContain('`src/price.ts:6` huge | ✗ new: new function over 30 |');
+			expect(text).toContain('| – | 6 | – | `src/other.ts:1` other | ? new: not measured (no coverage report) |');
+		});
+
 		it('keeps the coverage that settled a file when the full run, for another file, reports it lower', () => {
 			const both = (a: string, b: string) => `printf 'SF:src/price.ts\\n${a}end_of_record\\nSF:src/other.ts\\n${b}end_of_record\\n' > lcov.info`;
 			config({ testFirst: both(full, ''), test: both('DA:2,0\\nDA:3,0\\nDA:4,0\\n', full) });
