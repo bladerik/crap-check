@@ -128,6 +128,15 @@ describe('crap-check', () => {
 		expect(output.join('\n')).toContain('| – | 6 | – | `src/price.ts:1` price | ? new: not measured (no coverage report) |');
 	});
 
+	it('--all and baseline give no numbers for a package without a coverage report', () => {
+		write('crap.config.json', JSON.stringify({ base: 'main', packages: [{ root: '.', coverage: 'missing.info' }] }));
+		commit('no report');
+		expect(run('--all', '--no-run')).toBe(2);
+		expect(output.join('\n')).toContain('Not measured (no coverage report, left out): .');
+		expect(run('baseline', '--no-run', '--output', path.join(repo, 'b.json'))).toBe(2);
+		expect(fs.existsSync(path.join(repo, 'b.json'))).toBe(false);
+	});
+
 	it('runs no tests when the change touches no function, only text in a source file', () => {
 		write('crap.config.json', JSON.stringify({ base: 'main', packages: [{ root: '.', coverage: 'lcov.info', test: 'exit 7' }] }));
 		write('src/copy.ts', 'export const title = "Old";\n');

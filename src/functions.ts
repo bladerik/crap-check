@@ -65,7 +65,7 @@ const printer = ts.createPrinter({ removeComments: true });
 /** Code of a node for a name: without comments, on one line, at most `max` characters. */
 const shorten = (node: ts.Node, max: number) => {
 	const code = printer.printNode(ts.EmitHint.Unspecified, node, node.getSourceFile());
-	const flat = code.replace(/\s+/g, ' ').replace(/ ?([.(]) /g, '$1').replace(/ \./g, '.').trim();
+	const flat = code.replace(/\s*\n\s*\./g, '.').replace(/\s*\n\s*/g, ' ').trim();
 	return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 };
 

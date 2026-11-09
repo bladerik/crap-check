@@ -31,6 +31,8 @@ function addCalls(coverage, file, line, key, hits) {
         calls.set(line, (onLine = new Map()));
     onLine.set(key, Math.max(onLine.get(key) ?? 0, hits));
 }
+/** FNDA occurrences per name in the current file, for {@link readFunctionRecord}. */
+let seen = new Map();
 /**
  * `SF:` starts a file, `DA:<line>,<hits>` gives a line, `FN:<line>[,<end>],<name>` and
  * `FNDA:<hits>,<name>` give a function's calls; paths are resolved against `root`.
@@ -44,6 +46,7 @@ export function parseLcov(text, root) {
         if (line.startsWith('SF:')) {
             file = path.resolve(root, line.slice(3));
             starts = new Map();
+            seen = new Map();
         }
         else if (line === 'end_of_record')
             file = undefined;
@@ -59,16 +62,28 @@ export function parseLcov(text, root) {
     }
     return coverage;
 }
+/**
+ * `FN` gives a function's start line, `FNDA` its calls, matched by name. Names repeat (two
+ * functions called `choose`), so the n-th `FNDA` of a name belongs to its n-th `FN`, and each
+ * occurrence keeps its own key.
+ */
 function readFunctionRecord(coverage, file, line, starts) {
     const declared = /^FN:(\d+)(?:,\d+)?,(.+)$/.exec(line);
     if (declared) {
-        starts.set(declared[2], Number(declared[1]));
+        const lines = starts.get(declared[2]) ?? [];
+        starts.set(declared[2], [...lines, Number(declared[1])]);
         return;
     }
     const called = /^FNDA:(\d+),(.+)$/.exec(line);
-    const start = called ? starts.get(called[2]) : undefined;
-    if (called && start !== undefined)
-        addCalls(coverage, file, start, called[2], Number(called[1]));
+    if (!called)
+        return;
+    const lines = starts.get(called[2]);
+    const start = lines?.shift();
+    if (start === undefined)
+        return;
+    const occurrence = (seen.get(called[2]) ?? 0) + 1;
+    seen.set(called[2], occurrence);
+    addCalls(coverage, file, start, `${called[2]}#${occurrence}`, Number(called[1]));
 }
 /** A statement counts on the line it starts; a function on the line it is declared. */
 export function parseIstanbulJson(text, root) {
@@ -82,7 +97,7 @@ export function parseIstanbulJson(text, root) {
         for (const [id, fn] of Object.entries(entry.fnMap ?? {})) {
             const start = (fn.decl ?? fn.loc)?.start.line;
             if (start !== undefined)
-                addCalls(coverage, file, start, fn.name ?? id, entry.f?.[id] ?? 0);
+                addCalls(coverage, file, start, `${fn.name ?? 'fn'}#${id}`, entry.f?.[id] ?? 0);
         }
     }
     return coverage;
@@ -108,33 +123,44 @@ export function mergeCoverage(target, source) {
 const inNestedBody = (line, ranges) => ranges.some(([start, end]) => line > start && line < end);
 /**
  * Share of the function's own instrumented lines that ran: without the bodies of nested functions,
- * and without its first or last line when other code shares it. No such lines: untested, 0.
+ * and without its first or last line when other code shares it. No such lines: untested, 0. A
+ * function whose only lines run when the module loads counts 0 when the report's function records
+ * say it was never called.
  */
 export function functionCoverage(fn, lines) {
     if (!lines)
         return 0;
     const own = [...lines].filter(([line]) => line >= fn.startLine && line <= fn.endLine && !inNestedBody(line, fn.nestedRanges));
-    // Shared first/last lines run with the surrounding code; drop them unless they are all there is
-    // (a one-line function). Then they ran when the module loaded, so they count only when the
-    // report's function records show every function starting there was called.
+    // Shared first/last lines run with the surrounding code; drop them unless they are all there is.
     const unshared = own.filter(([line]) => !fn.sharedLines?.includes(line));
-    if (unshared.length === 0 && own.length > 0 && neverCalled(fn, lines))
+    // Lines inside a multi-line body only run when the function does; a one-line function's line
+    // also runs when the module loads, so there the call records decide.
+    const onlyLoadTimeLines = fn.startLine === fn.endLine || unshared.length === 0;
+    if (onlyLoadTimeLines && ownCalls(fn, lines) === 0)
         return 0;
     const counted = unshared.length > 0 ? unshared : own;
     if (counted.length === 0)
         return 0;
     return counted.filter(([, hits]) => hits > 0).length / counted.length;
 }
-/** A function record within the function's lines that shows no calls. No records: unknown, false. */
-function neverCalled(fn, lines) {
-    if (!(lines instanceof FileLines))
-        return false;
-    for (let line = fn.startLine; line <= fn.endLine; line++) {
-        for (const hits of lines.calls.get(line)?.values() ?? [])
-            if (hits === 0)
-                return true;
-    }
-    return false;
+/** `outer/inner` -> `inner`, `Class.method` -> `method`; a callback's call name gives nothing to match. */
+const simpleName = (name) => (name.includes('(') ? undefined : name.split(/[/.]/).pop());
+/**
+ * Calls of the function from the report's records on its first line: the record with its name,
+ * else the only record there; with several unnamed records, 0 only when none of them was called.
+ * Undefined when it cannot tell (no records, or an ambiguous mix).
+ */
+function ownCalls(fn, lines) {
+    const records = lines instanceof FileLines ? lines.calls.get(fn.startLine) : undefined;
+    if (!records || records.size === 0)
+        return undefined;
+    const name = simpleName(fn.name);
+    const named = [...records].filter(([key]) => name !== undefined && key.replace(/#[^#]*$/, '') === name);
+    if (named.length === 1)
+        return named[0][1];
+    if (records.size === 1)
+        return [...records.values()][0];
+    return [...records.values()].every((hits) => hits === 0) ? 0 : undefined;
 }
 /**
  * Whether a file's coverage looks mapped onto its source lines. Coverage of transpiled output (a

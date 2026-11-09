@@ -127,8 +127,8 @@ Give each runner its own package entry; a file belongs to the entry with the lon
 - **Code tested only in a browser.** Coverage comes from the test process. Code that runs inside a
   headless browser (rendering through Playwright or Puppeteer) counts as untested even when a test
   exercises it. Test the logic directly, or collect the browser's coverage into the report.
-- **Svelte, Vue and other component files.** Only `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs` and `.cjs`
-  are scored; the logic in a component's `<script>` is not.
+- **Svelte, Vue and other component files.** Only `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`,
+  `.mjs` and `.cjs` are scored; the logic in a component's `<script>` is not.
 - **Functions above the threshold in complexity.** With full coverage CRAP equals complexity, so a
   new function with complexity over 30 cannot pass, and a changed one fails when it gets more
   complex. Split it.
@@ -153,13 +153,14 @@ npx crap-check baseline   # store the CRAP of every function at HEAD (run on the
 | `--config <file>` | Another config file. |
 
 Exit codes: `0` passed, `1` a function failed, `2` no verdict: crap-check could not run, or a
-package's tests wrote no coverage report.
+package's tests wrote no coverage report. A failure in a measured package wins: `1`.
 
 Tests run only when the change touches a function, so a copy edit in a source file costs nothing.
 Failing tests do not stop the check: it gates CRAP, not tests. They show up as a warning and their
 partial coverage counts. Tests that do not start at all (missing dependencies or coverage provider)
 write no report: those functions show `? not measured` instead of a guessed 0%, and the check exits
-2 until the setup is fixed.
+2 (or 1 when another function failed) until the setup is fixed. `--all` leaves such packages out and
+`baseline` writes nothing; both exit 2.
 
 To judge an older commit with a config it does not have yet, check the commit out, put the config
 in the working tree and run `crap-check --base <its parent>` (without `--ref`).
@@ -233,7 +234,7 @@ chmod +x .githooks/pre-push && git config core.hooksPath .githooks
 ## How it measures
 
 - **Functions:** declarations, expressions, arrows, methods, accessors and constructors, read with
-  the TypeScript compiler from `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`. Names are qualified:
+  the TypeScript compiler from `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`. Names are qualified:
   `outer/inner`, `Class.method`, `object.property`, `mutation.handler`; a function passed to a call
   is named after the call and its other arguments (`app.get('/orders', <callback>)`,
   `useEffect(<callback>, [id])`), a function assigned to something after it (`script.onerror`), and
@@ -243,8 +244,9 @@ chmod +x .githooks/pre-push && git config core.hooksPath .githooks
 - **Coverage:** the instrumented lines inside the function that ran, without the body of nested
   functions, and without its own first or last line when other code shares it (`app.get('/x', (req)
   => {` runs when the module loads, whether or not the handler ever does). A function missing from
-  the report is untested. A function on one line (all its lines shared) counts as run only when the
-  report's function records say it was called.
+  the report is untested. A function on one line, or with only shared lines, can look run just
+  because its module loaded: when the report has function records (LCOV `FN`/`FNDA`, istanbul
+  `fnMap`), one that says it was never called makes it 0%.
 - **Changed:** a function containing an added or modified line. It is paired with its base version
   in the same file by an identical body first, then by name when no function of that name was added
   or removed, then by the most similar body (at least half of the identifiers shared, best pairs

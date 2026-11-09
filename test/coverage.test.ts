@@ -89,6 +89,28 @@ describe('function coverage', () => {
 		expect(functionCoverage({ ...fn, nestedRanges: [], sharedLines: [10] }, lines)).toBe(1);
 	});
 
+	it('matches repeated function names in LCOV by occurrence', () => {
+		const lcov = 'SF:src/a.ts\nFN:1,choose\nFN:2,choose\nFNDA:0,choose\nFNDA:1,choose\nDA:1,1\nDA:2,1\nend_of_record\n';
+		const lines = parseLcov(lcov, root).get(path.resolve(root, 'src/a.ts'));
+		const at = (line: number): FunctionInfo => ({ ...fn, name: 'b', startLine: line, endLine: line, nestedRanges: [], sharedLines: [line] });
+		expect(functionCoverage({ ...at(1), name: 'a' }, lines)).toBe(0);
+		expect(functionCoverage({ ...at(2), name: 'b' }, lines)).toBe(1);
+	});
+
+	it('does not blame a called function for an uncalled neighbour on its line', () => {
+		const lcov = 'SF:src/a.ts\nFN:1,pick\nFN:1,spare\nFNDA:4,pick\nFNDA:0,spare\nDA:1,1\nend_of_record\n';
+		const lines = parseLcov(lcov, root).get(path.resolve(root, 'src/a.ts'));
+		const oneLine = (name: string): FunctionInfo => ({ ...fn, name, startLine: 1, endLine: 1, nestedRanges: [], sharedLines: [1] });
+		expect(functionCoverage(oneLine('pick'), lines)).toBe(1);
+		expect(functionCoverage(oneLine('spare'), lines)).toBe(0);
+	});
+
+	it('does not count an uncalled one-line declaration that shares its line with nothing', () => {
+		const lcov = 'SF:src/a.ts\nFN:1,choose\nFNDA:0,choose\nDA:1,1\nend_of_record\n';
+		const lines = parseLcov(lcov, root).get(path.resolve(root, 'src/a.ts'));
+		expect(functionCoverage({ ...fn, name: 'choose', startLine: 1, endLine: 1, nestedRanges: [], sharedLines: [] }, lines)).toBe(0);
+	});
+
 	it('treats a function missing from the report as untested', () => {
 		expect(functionCoverage(fn, undefined)).toBe(0);
 		expect(functionCoverage(fn, new Map([[1, 1]]))).toBe(0);

@@ -91,6 +91,11 @@ function setup(w, script) {
 		expect(fns['setup/script.onerror']).toBeDefined();
 	});
 
+	it('keeps the spaces inside strings, so different selectors stay different names', () => {
+		const names = findFunctions('a.ts', "$('.panel .button').on('click', (x) => 1);\n$('.panel.button').on('click', (x) => 2);").map((f) => f.name);
+		expect(names).toEqual(["$('.panel .button').on('click', <callback>)", "$('.panel.button').on('click', <callback>)"]);
+	});
+
 	it('keeps comments and line breaks out of callback names', () => {
 		const names = findFunctions(
 			'a.ts',

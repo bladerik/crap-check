@@ -83,15 +83,23 @@ function trackedSourceFiles(root, config) {
     const isSource = sourceFileFilter(config);
     return trackedFiles(root)().filter((file) => isSource(file) && packageFor(config, file));
 }
+/** Every function of the project; packages that wrote no coverage report are left out and listed. */
 function measureAll(root, config, run) {
     const files = trackedSourceFiles(root, config);
-    const { coverage, warnings } = collectCoverage({ root, config, files, mode: 'testAll', run, trackedFiles: trackedFiles(root) });
+    const { coverage, warnings, unmeasured } = collectCoverage({ root, config, files, mode: 'testAll', run, trackedFiles: trackedFiles(root) });
     const read = readCurrent(root);
-    const functions = files.flatMap((file) => measureFile(root, file, read(file) ?? '', coverage));
-    return { functions, warnings };
+    const measured = files.filter((file) => !unmeasured.includes(packageFor(config, file)?.root ?? ''));
+    const functions = measured.flatMap((file) => measureFile(root, file, read(file) ?? '', coverage));
+    return { functions, warnings, unmeasured };
 }
 function runBaseline(root, config, options) {
-    const { functions, warnings } = measureAll(root, config, options.run);
+    const { functions, warnings, unmeasured } = measureAll(root, config, options.run);
+    if (unmeasured.length) {
+        for (const warning of warnings)
+            console.error(`Warning: ${warning}`);
+        console.error(`crap-check: no baseline written: ${unmeasured.join(', ')} wrote no coverage report`);
+        return 2;
+    }
     const baseline = { sha: headSha(root), createdAt: new Date().toISOString(), files: {} };
     for (const fn of functions) {
         (baseline.files[fn.file] ??= []).push({ name: fn.name, bodyHash: fn.bodyHash, complexity: fn.complexity, crap: fn.crap });
@@ -104,11 +112,13 @@ function runBaseline(root, config, options) {
     return 0;
 }
 function runAll(root, config, options) {
-    const { functions, warnings } = measureAll(root, config, options.run);
+    const { functions, warnings, unmeasured } = measureAll(root, config, options.run);
     console.log(topReport(functions, options.limit));
+    if (unmeasured.length)
+        console.log(`\nNot measured (no coverage report, left out): ${unmeasured.join(', ')}`);
     for (const warning of warnings)
         console.error(`Warning: ${warning}`);
-    return 0;
+    return unmeasured.length ? 2 : 0;
 }
 /**
  * With `--ref`, sources and config come from that commit but tests run on the working tree.
