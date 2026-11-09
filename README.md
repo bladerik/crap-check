@@ -50,7 +50,7 @@ reviewers; copy changes: none).
 npm install --save-dev @bladerik/crap-check
 ```
 
-Requires Node 20+ and git. Your tests must write a coverage report (LCOV or istanbul JSON); vitest
+Requires Node 22+ and git. Your tests must write a coverage report (LCOV or istanbul JSON); vitest
 needs `@vitest/coverage-v8`, jest has coverage built in.
 
 ## Configure
