@@ -23,3 +23,21 @@ jobs:
       - run: pnpm test
       - name: dist is built from src
         run: pnpm build && git diff --exit-code -- dist
+  # Users may run crap-check on Node 20; pnpm 11 itself needs Node 22, so install first, then test.
+  node20:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node --version && node ./node_modules/vitest/vitest.mjs run
+      - run: node dist/cli.js --version

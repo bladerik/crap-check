@@ -50,7 +50,7 @@ reviewers; copy changes: none).
 npm install --save-dev @bladesk/crap-check
 ```
 
-Requires Node 22+ and git. Your tests must write a coverage report (LCOV or istanbul JSON); vitest
+Requires Node 20+ and git. Your tests must write a coverage report (LCOV or istanbul JSON); vitest
 needs `@vitest/coverage-v8`, jest has coverage built in.
 
 ## Configure
@@ -195,6 +195,7 @@ head=$(git rev-parse HEAD)
 status=0
 checked=""
 while read -r local_ref local_sha remote_ref remote_sha; do
+	case "$remote_ref" in refs/tags/*) continue ;; esac # a tag points at code a branch push judges
 	case "$local_sha" in *[!0]*) ;; *) continue ;; esac # branch deletion
 	case " $checked " in *" $local_sha "*) continue ;; esac
 	checked="$checked $local_sha"

@@ -1,6 +1,6 @@
 {
 	"name": "@bladesk/crap-check",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "CRAP score gate for the functions a change touches in JavaScript and TypeScript projects.",
 	"type": "module",
 	"license": "MIT",
@@ -33,7 +33,7 @@
 		"LICENSE"
 	],
 	"engines": {
-		"node": ">=22"
+		"node": ">=20"
 	},
 	"scripts": {
 		"build": "tsc -p tsconfig.build.json",
