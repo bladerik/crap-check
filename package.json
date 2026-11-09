@@ -1,6 +1,6 @@
 {
 	"name": "@bladesk/crap-check",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "CRAP score gate for the functions a change touches in JavaScript and TypeScript projects.",
 	"type": "module",
 	"license": "MIT",

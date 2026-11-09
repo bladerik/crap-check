@@ -263,8 +263,9 @@ chmod +x .githooks/pre-push && git config core.hooksPath .githooks
 ## Releasing
 
 Bump `version` in `package.json`, rebuild (`pnpm build`), commit, then publish a GitHub release
-tagged `v<version>`. The `release` workflow tests and publishes to npm with provenance, through npm
-trusted publishing (no token).
+tagged `v<version>`. The `release` workflow tests and stages the package on npm with provenance,
+through npm trusted publishing (no token). It goes live once a maintainer approves it with 2FA on
+npmjs.com (Staged Packages) or with `npm stage approve <stage-id>`.
 
 ## Credits
 

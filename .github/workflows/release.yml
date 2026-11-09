@@ -1,6 +1,8 @@
 name: release
-# Publishes to npm when a GitHub release is published (tag v<version>, matching package.json).
-# npm trusted publishing: no token; the package's npm settings trust this workflow.
+# Stages the package on npm when a GitHub release is published (tag v<version>, matching package.json).
+# npm trusted publishing: no token; the package's npm settings trust this workflow for `npm stage publish`
+# only. The version goes live when a maintainer approves it with 2FA (npmjs.com → Staged Packages, or
+# `npm stage approve <stage-id>`).
 on:
   release:
     types: [published]
@@ -26,4 +28,4 @@ jobs:
         run: pnpm build && git diff --exit-code -- dist
       - name: tag matches package.json
         run: test "v$(node -p "require('./package.json').version")" = "${GITHUB_REF_NAME}"
-      - run: npm publish --access public --provenance
+      - run: npm stage publish --access public --provenance
