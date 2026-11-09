@@ -65,9 +65,14 @@ export const DEFAULTS: Omit<Config, 'packages'> = {
 	reviewTiers: []
 };
 
-export function loadConfig(repoRoot: string, file = CONFIG_FILE): Config {
+/**
+ * Reads the config. `readText` overrides where it comes from: with `--ref` it is the judged commit,
+ * so an uncommitted config edit cannot change the verdict.
+ */
+export function loadConfig(repoRoot: string, file = CONFIG_FILE, readText?: (file: string) => string | undefined): Config {
 	const configPath = path.resolve(repoRoot, file);
-	const raw = fs.existsSync(configPath) ? (JSON.parse(fs.readFileSync(configPath, 'utf8')) as Partial<Config>) : {};
+	const text = readText ? readText(file) : fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : undefined;
+	const raw = text === undefined ? {} : (JSON.parse(text) as Partial<Config>);
 	const config: Config = { ...DEFAULTS, packages: [{ root: '.', coverage: 'coverage/lcov.info' }], ...raw };
 	if (raw.exclude && raw.excludeDefaults !== false) config.exclude = [...DEFAULTS.exclude, ...raw.exclude];
 	if (!Array.isArray(config.packages) || config.packages.length === 0) {

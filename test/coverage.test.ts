@@ -46,6 +46,11 @@ describe('function coverage', () => {
 		expect(functionCoverage(oneLineCallbacks, new Map([[11, 0], [12, 0], [13, 1]]))).toBeCloseTo(1 / 3);
 	});
 
+	it('ignores its first and last line when other code shares them (they run when the module loads)', () => {
+		const inline: FunctionInfo = { ...fn, nestedRanges: [], sharedLines: [10, 20] };
+		expect(functionCoverage(inline, new Map([[10, 1], [15, 0], [20, 1]]))).toBe(0);
+	});
+
 	it('treats a function missing from the report as untested', () => {
 		expect(functionCoverage(fn, undefined)).toBe(0);
 		expect(functionCoverage(fn, new Map([[1, 1]]))).toBe(0);

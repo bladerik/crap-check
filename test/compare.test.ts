@@ -61,6 +61,26 @@ describe('pairing with base', () => {
 		]);
 	});
 
+	it('keeps a callback paired when its deps or route change along with its body', () => {
+		const base = "useEffect(() => { if (x.id) load(x.id); if (x.ok) show(); }, [x.id]);\napp.get('/orders', (req) => { if (req.a) return 1; return 2; });";
+		const head = "useEffect(() => { if (x.id) load(x.id, x.user); if (x.ok) show(); }, [x.id, x.user]);\napp.get('/api/orders', (req) => { if (req.a) return 1; return 3; });";
+		expect(pairedNames(head, base)).toEqual([
+			'useEffect(<callback>, [x.id, x.user]) -> useEffect(<callback>, [x.id])',
+			"app.get('/api/orders', <callback>) -> app.get('/orders', <callback>)"
+		]);
+	});
+
+	it('pairs the best matches first, so a similar new callback above cannot take the old one', () => {
+		const base = 'function C() {\n\tuseEffect(() => { if (a) load(a); if (b) save(b); if (c) send(c); });\n}';
+		const head =
+			'function C() {\n\tuseEffect(() => { if (a) load(a); if (d) other(d); });\n\tuseEffect(() => { if (a) load(a); if (b) save(b); if (c) send(c, 1); });\n}';
+		expect(pairedNames(head, base)).toEqual([
+			'C -> C',
+			'C/useEffect(<callback>) -> -',
+			'C/useEffect(<callback>)#2 -> C/useEffect(<callback>)'
+		]);
+	});
+
 	it('tells calls apart by their other arguments', () => {
 		const names = findFunctions('a.ts', "app.get('/a', (r) => 1);\napp.get('/b', (r) => 2);").map((f) => f.name);
 		expect(names).toEqual(["app.get('/a', <callback>)", "app.get('/b', <callback>)"]);

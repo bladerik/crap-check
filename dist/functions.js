@@ -110,6 +110,20 @@ function qualifiedName(node) {
     return `${prefix.join('/')}${isMember(node) ? '.' : '/'}${own}`;
 }
 const lineOf = (source, position) => source.getLineAndCharacterOfPosition(position).line + 1;
+/** First and last line of `node` when other code (not just `;` or `,`) stands on them too. */
+function sharedLinesOf(source, node) {
+    const text = source.text;
+    const start = node.getStart(source);
+    const end = node.getEnd();
+    const lineStart = text.lastIndexOf('\n', start - 1) + 1;
+    const lineEnd = text.indexOf('\n', end) === -1 ? text.length : text.indexOf('\n', end);
+    const shared = [];
+    if (text.slice(lineStart, start).trim() !== '')
+        shared.push(lineOf(source, start));
+    if (text.slice(end, lineEnd).replace(/[\s;,]/g, '') !== '')
+        shared.push(lineOf(source, end));
+    return shared;
+}
 const bodyTextOf = (source, fn) => (fn.body ?? fn).getText(source).replace(/\s+/g, ' ').trim();
 const hashOf = (text) => createHash('sha1').update(text).digest('hex').slice(0, 16);
 export function scriptKindFor(fileName) {
@@ -136,7 +150,8 @@ export function findFunctions(fileName, text) {
                 complexity: cyclomaticComplexity(node),
                 nestedRanges: [],
                 bodyHash: hashOf(bodyText),
-                bodyText
+                bodyText,
+                sharedLines: sharedLinesOf(source, node)
             });
         }
         ts.forEachChild(node, visit);

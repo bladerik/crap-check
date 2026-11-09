@@ -7,6 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import picomatch from 'picomatch';
 import { checkChange, measureFile } from './analyze.js';
 import { baselinePath, readBaseline, writeBaseline, type Baseline } from './baseline.js';
 import { loadConfig, packageFor, type Config } from './config.js';
@@ -96,14 +97,15 @@ function runAll(root: string, config: Config, options: Options): number {
 }
 
 /**
- * With `--ref`, sources come from that commit but tests run on the working tree. Uncommitted
- * changes in the packages being checked (a test not yet committed, for example) would lend the
- * commit coverage it does not have, so refuse.
+ * With `--ref`, sources and config come from that commit but tests run on the working tree.
+ * Uncommitted code in the packages being checked (a test not yet committed, for example) would lend
+ * the commit coverage it does not have, so refuse.
  */
 function assertCommitted(root: string, config: Config, ref: string | undefined, sources: string[]): void {
 	if (!ref) return;
-	const roots = [...new Set(sources.map((file) => packageFor(config, file)?.root ?? '.'))];
-	const dirty = uncommittedFiles(root, ref, roots);
+	const roots = [...new Set(sources.flatMap((file) => packageFor(config, file)?.root ?? []))];
+	const isCode = picomatch(config.include, { dot: true }); // sources and tests; notes or docs cannot change coverage
+	const dirty = uncommittedFiles(root, ref, roots).filter((file) => isCode(file));
 	if (dirty.length === 0) return;
 	const listed = dirty.slice(0, 5).join(', ') + (dirty.length > 5 ? ', …' : '');
 	throw new Error(`uncommitted changes in ${roots.join(', ')} (${listed}): commit or stash them first; the tests run on the working tree`);
@@ -132,7 +134,8 @@ export function main(argv: string[]): number {
 	try {
 		const options = parseArgs(argv);
 		const root = repoRoot(process.cwd());
-		const config = loadConfig(root, options.config);
+		const ref = options.ref;
+		const config = loadConfig(root, options.config, ref ? (file) => fileAt(root, ref, file) : undefined);
 		if (options.command === 'baseline') return runBaseline(root, config, options);
 		return options.all ? runAll(root, config, options) : runCheck(root, config, options);
 	} catch (error) {

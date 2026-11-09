@@ -67,8 +67,8 @@ const inNestedBody = (line: number, ranges: Array<[number, number]>) =>
 	ranges.some(([start, end]) => line > start && line < end);
 
 /**
- * Share of the function's own instrumented lines (bodies of nested functions excluded) that ran.
- * A function with no instrumented lines in the report is untested: 0.
+ * Share of the function's own instrumented lines that ran: without the bodies of nested functions,
+ * and without its first or last line when other code shares it. No such lines: untested, 0.
  */
 export function functionCoverage(fn: FunctionInfo, lines: Map<number, number> | undefined): number {
 	if (!lines) return 0;
@@ -76,6 +76,7 @@ export function functionCoverage(fn: FunctionInfo, lines: Map<number, number> | 
 	let covered = 0;
 	for (const [line, hits] of lines) {
 		if (line < fn.startLine || line > fn.endLine || inNestedBody(line, fn.nestedRanges)) continue;
+		if (fn.sharedLines?.includes(line)) continue; // runs with the surrounding code, not the function
 		total++;
 		if (hits > 0) covered++;
 	}

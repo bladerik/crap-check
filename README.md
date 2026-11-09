@@ -111,7 +111,7 @@ npx crap-check baseline   # store the CRAP of every function at HEAD (run on the
 | Option | |
 | --- | --- |
 | `--base <ref>` | Compare with another branch. |
-| `--ref <commit>` | Judge this commit instead of the working tree (what a pre-push hook needs). Tests run on the working tree, so uncommitted changes in the checked packages (untracked files included) stop the check with exit 2. |
+| `--ref <commit>` | Judge this commit instead of the working tree (what a pre-push hook needs). Config comes from that commit too. Tests run on the working tree, so uncommitted JS/TS files in the checked packages (untracked included) stop the check with exit 2. |
 | `--no-run` | Do not run tests; read the coverage reports already on disk. |
 | `--json` | JSON instead of the Markdown table. |
 | `--baseline <file>` | Use this baseline file instead of the cached one. |
@@ -188,11 +188,14 @@ chmod +x .githooks/pre-push && git config core.hooksPath .githooks
 - **Complexity:** 1 plus each `if`, `?:`, `case`, loop, `catch`, `&&`, `||` and `??`. Branches of a
   nested function count for that function.
 - **Coverage:** the instrumented lines inside the function that ran, without the body of nested
-  functions (their first and last line also hold the outer code). A function missing from the
-  report is untested.
+  functions, and without its own first or last line when other code shares it (`app.get('/x', (req)
+  => {` runs when the module loads, whether or not the handler ever does). A function missing from
+  the report is untested.
 - **Changed:** a function containing an added or modified line. It is paired with its base version
   in the same file by an identical body first, then by name when no function of that name was added
-  or removed, then by the most similar body of that name (at least half of the identifiers shared).
+  or removed, then by the most similar body (at least half of the identifiers shared, best pairs
+  first). Callbacks pair by what they are a callback of, so changing a hook's deps or a route's path
+  along with the body keeps them paired.
   An unpaired function with the identical body of a removed one moved (renamed, or to another
   changed file); each removed function moves once, so a copy is new. Names and complexity on base
   always come from the base source; the baseline only adds the base CRAP shown in the table.

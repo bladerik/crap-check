@@ -30,19 +30,29 @@ const countBy = (names) => {
     return counts;
 };
 /**
+ * What a callback is a callback of: the name without its other call arguments and repeat label
+ * (`C/useEffect(<callback>, [id])#2` -> `C/useEffect`). Editing a hook's deps or a route's path
+ * changes the name, not the function. Other names stay as they are.
+ */
+export const calleeKey = (name) => stem(name).replace(/\((?:[^()]|\([^()]*\))*\)$/, '');
+/**
  * Pairs the head functions of one file with their base versions (head index -> base index):
- * 1. an identical body under the same name stem;
+ * 1. an identical body under the same callee;
  * 2. the same name, when that stem occurs equally often on both sides (nothing inserted or removed);
- * 3. the most similar body under the same stem, if at least half of its identifiers are shared.
+ * 3. the most similar body under the same callee (at least half of the identifiers shared), best
+ *    pairs first, so a new function inserted above an edited one cannot take its place.
  * Repeat labels (`#2`) shift when a same-named callback is inserted, so they never decide alone.
  */
 export function pairFunctions(head, base) {
     const pairs = new Map();
     const used = new Set();
-    const pair = (h, b) => (pairs.set(h, b), used.add(b));
-    const free = (h) => base.map((_, b) => b).filter((b) => !used.has(b) && stem(base[b].name) === stem(head[h].name));
+    const pair = (h, b) => {
+        pairs.set(h, b);
+        used.add(b);
+    };
+    const open = (h) => base.map((_, b) => b).filter((b) => !used.has(b) && calleeKey(base[b].name) === calleeKey(head[h].name));
     head.forEach((fn, h) => {
-        const same = free(h).find((b) => base[b].bodyHash === fn.bodyHash);
+        const same = open(h).find((b) => base[b].bodyHash === fn.bodyHash);
         if (same !== undefined)
             pair(h, same);
     });
@@ -51,18 +61,17 @@ export function pairFunctions(head, base) {
     head.forEach((fn, h) => {
         if (pairs.has(h) || headCounts.get(stem(fn.name)) !== baseCounts.get(stem(fn.name)))
             return;
-        const byName = free(h).find((b) => base[b].name === fn.name);
+        const byName = open(h).find((b) => base[b].name === fn.name);
         if (byName !== undefined)
             pair(h, byName);
     });
-    head.forEach((fn, h) => {
-        if (pairs.has(h))
-            return;
-        const scored = free(h).map((b) => ({ b, score: similarity(fn.bodyText, base[b].bodyText ?? '') }));
-        const best = scored.sort((x, y) => y.score - x.score)[0];
-        if (best && best.score >= 0.5)
-            pair(h, best.b);
-    });
+    const candidates = head
+        .flatMap((fn, h) => (pairs.has(h) ? [] : open(h).map((b) => ({ h, b, score: similarity(fn.bodyText, base[b].bodyText ?? '') }))))
+        .filter((candidate) => candidate.score >= 0.5)
+        .sort((x, y) => y.score - x.score);
+    for (const { h, b } of candidates)
+        if (!pairs.has(h) && !used.has(b))
+            pair(h, b);
     return pairs;
 }
 /** Why an old function over the threshold was let through, with what the baseline knew. */

@@ -16,6 +16,11 @@ export type FunctionInfo = {
 	bodyHash: string;
 	/** The body with whitespace collapsed, to pair an edited function with its old version. */
 	bodyText: string;
+	/**
+	 * Its first or last line when other code shares it (`app.get('/x', (req) => {`, `});`). That code
+	 * runs when the module loads, so those lines say nothing about whether the function ran.
+	 */
+	sharedLines?: number[];
 };
 
 const DECISION_KINDS = new Set([
@@ -128,6 +133,19 @@ function qualifiedName(node: ts.Node): string {
 
 const lineOf = (source: ts.SourceFile, position: number) => source.getLineAndCharacterOfPosition(position).line + 1;
 
+/** First and last line of `node` when other code (not just `;` or `,`) stands on them too. */
+function sharedLinesOf(source: ts.SourceFile, node: ts.Node): number[] {
+	const text = source.text;
+	const start = node.getStart(source);
+	const end = node.getEnd();
+	const lineStart = text.lastIndexOf('\n', start - 1) + 1;
+	const lineEnd = text.indexOf('\n', end) === -1 ? text.length : text.indexOf('\n', end);
+	const shared: number[] = [];
+	if (text.slice(lineStart, start).trim() !== '') shared.push(lineOf(source, start));
+	if (text.slice(end, lineEnd).replace(/[\s;,]/g, '') !== '') shared.push(lineOf(source, end));
+	return shared;
+}
+
 const bodyTextOf = (source: ts.SourceFile, fn: ts.FunctionLikeDeclaration) =>
 	(fn.body ?? fn).getText(source).replace(/\s+/g, ' ').trim();
 
@@ -155,7 +173,8 @@ export function findFunctions(fileName: string, text: string): FunctionInfo[] {
 				complexity: cyclomaticComplexity(node),
 				nestedRanges: [],
 				bodyHash: hashOf(bodyText),
-				bodyText
+				bodyText,
+				sharedLines: sharedLinesOf(source, node)
 			});
 		}
 		ts.forEachChild(node, visit);

@@ -132,6 +132,14 @@ describe('crap-check', () => {
 		expect(run('--no-run')).toBe(0); // without --ref the working tree counts
 	});
 
+	it('with --ref reads the config from the commit and ignores uncommitted non-code files', () => {
+		write('src/price.ts', branchy);
+		commit('untested price');
+		write('crap.config.json', JSON.stringify({ base: 'main', threshold: 50, packages: [{ root: '.', coverage: 'lcov.info' }] }));
+		write('NOTES.txt', 'scratch\n');
+		expect(run('--no-run', '--ref', 'HEAD')).toBe(1); // the committed threshold, 30, applies
+	});
+
 	it('does not let a same-named callback inserted above an old one pass as the old one', () => {
 		git('checkout', '-q', 'main');
 		const handler = (body: string) => `app.use((req, res) => {\n${body}\n});\n`;

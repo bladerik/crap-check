@@ -64,6 +64,12 @@ export default function () {}
 		expect(a.bodyHash).toBe(b.bodyHash);
 	});
 
+	it('marks first and last lines that other code shares', () => {
+		const [route, plain] = findFunctions('a.ts', "app.get('/x', (req) => {\n\treturn 1;\n});\nfunction plain() {\n\treturn 2;\n}\n");
+		expect(route.sharedLines).toEqual([1, 3]);
+		expect(plain.sharedLines).toEqual([]);
+	});
+
 	it('reads JavaScript and JSX too', () => {
 		expect(findFunctions('c.jsx', 'export const C = () => <div>{ok ? 1 : 2}</div>;')[0]).toMatchObject({
 			name: 'C',
