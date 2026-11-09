@@ -115,3 +115,18 @@ export function judge(fn, match, threshold) {
     }
     return { ...fn, kind: match.kind, base: match.base, ...judgeExisting(fn, match.base, threshold) };
 }
+/**
+ * Whether coverage could change this verdict. Coverage only lowers CRAP, so a function that passes
+ * at 0% passes at any coverage, one more complex than the threshold fails at any, and an old one that
+ * did not get more complex cannot fail (coverage only decides whether it is let through).
+ */
+export function needsCoverage(verdict, threshold) {
+    return verdict.status === 'fail' && verdict.complexity <= threshold;
+}
+/** A verdict reached without coverage of its own: a let through becomes a pass that says so. */
+export function withoutCoverage(verdict) {
+    if (verdict.status === 'warn') {
+        return { ...verdict, status: 'ok', measured: false, reason: 'not more complex; not measured (it cannot fail)' };
+    }
+    return { ...verdict, measured: false, reason: verdict.reason ?? 'passes at any coverage' };
+}

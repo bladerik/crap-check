@@ -53,6 +53,23 @@ describe('checking a change', () => {
 		expect(result.verdicts[0]).toMatchObject({ kind: 'changed', status: 'warn' });
 	});
 
+	it('claims a let through only from full coverage: not from the narrow first run, not without tests', () => {
+		for (const how of ['partial', 'none'] as const) {
+			const verdict = checkChange(input({ readBase: () => branchy, coverageOf: () => how })).verdicts[0];
+			expect(verdict).toMatchObject({ status: 'ok', measured: false, reason: 'not more complex; not measured (it cannot fail)' });
+		}
+		expect(checkChange(input({ readBase: () => branchy, coverageOf: () => 'full' })).verdicts[0].status).toBe('warn');
+	});
+
+	it('keeps a pass the narrow first run proves, and fails without tests what is too complex for any', () => {
+		const covered = new Map([['/repo/src/billing/price.ts', new Map([[2, 1], [3, 1], [4, 1]])]]);
+		const proven = checkChange(input({ coverage: covered, coverageOf: () => 'partial' })).verdicts[0];
+		expect(proven).toMatchObject({ status: 'ok', coverage: 1 });
+		expect(proven.measured).toBeUndefined();
+		const untested = checkChange(input({ coverageOf: () => 'none' }));
+		expect(untested.failed).toBe(true); // complexity 6 needs coverage; the CLI tests it, this shows no tests mean no pass
+	});
+
 	it('shows the baseline CRAP but judges an old function by its complexity from the base source', () => {
 		const baseline = { sha: 'abc', createdAt: '', files: { 'src/billing/price.ts': [{ name: 'price', bodyHash: 'x', complexity: 6, crap: 10 }] } };
 		const result = checkChange(input({ baseline, readBase: () => branchy }));

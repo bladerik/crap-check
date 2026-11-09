@@ -8,8 +8,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import picomatch from 'picomatch';
-import { checkChange, measureFile } from './analyze.js';
+import { checkChange, measureFile, type CheckInput, type CheckResult } from './analyze.js';
 import { baselinePath, readBaseline, writeBaseline, type Baseline } from './baseline.js';
+import { needsCoverage, type Verdict } from './compare.js';
 import { CONFIG_FILE, loadConfig, packageFor, type Config } from './config.js';
 import type { LineCoverage } from './coverage.js';
 import { collectCoverage } from './collect.js';
@@ -158,19 +159,54 @@ export function coverageOutput(config: Config): (file: string) => boolean {
 	return (file) => outputs.some(({ report, folder }) => file === report || (folder !== undefined && file.startsWith(folder)));
 }
 
+type Measurement = Pick<CheckInput, 'coverage' | 'unmeasured' | 'coverageOf'> & { warnings: string[] };
+
+const filesOf = (verdicts: Verdict[]) => [...new Set(verdicts.map((verdict) => verdict.file))];
+
+/** Files with a verdict that coverage could still change. */
+const pendingFiles = (result: CheckResult, threshold: number) =>
+	filesOf(result.verdicts.filter((verdict) => needsCoverage(verdict, threshold)));
+
+/**
+ * Runs tests only where coverage could change a verdict: first the package's `testFirst` (a narrow,
+ * quick run) where it has one, then `test` for the files where something still fails.
+ */
+function measureLazily(root: string, config: Config, input: Omit<CheckInput, 'coverage'>, pending: string[]): Measurement {
+	const full = new Set<string>();
+	const partial = new Set<string>();
+	const coverageOf = (file: string) => (full.has(file) ? 'full' : partial.has(file) ? 'partial' : 'none');
+	const collect = (files: string[], mode: 'test' | 'testFirst') =>
+		collectCoverage({ root, config, files, mode, run: true, trackedFiles: trackedFiles(root) });
+	const first = pending.filter((file) => packageFor(config, file)?.testFirst);
+	const narrow = first.length ? collect(first, 'testFirst') : { coverage: new Map() as LineCoverage, warnings: [] as string[] };
+	const failing = new Set(pendingFiles(checkChange({ ...input, coverage: narrow.coverage }), config.threshold));
+	for (const file of first) if (!failing.has(file)) partial.add(file);
+	const rest = pending.filter((file) => !partial.has(file));
+	if (rest.length === 0) return { coverage: narrow.coverage, warnings: narrow.warnings, coverageOf };
+	const wide = collect(rest, 'test');
+	for (const file of rest) full.add(file);
+	const coverage = new Map([...narrow.coverage, ...wide.coverage]);
+	return { coverage, warnings: [...narrow.warnings, ...wide.warnings], unmeasured: wide.unmeasured, coverageOf };
+}
+
 function runCheck(root: string, config: Config, options: Options): number {
 	const baseSha = mergeBase(root, options.base ?? config.base, options.ref);
 	const changes = changedFiles(root, baseSha, options.ref);
 	const read = options.ref ? (file: string) => fileAt(root, options.ref!, file) : readCurrent(root);
 	const baseline = readBaseline(options.baselineFile ?? baselinePath(gitCommonDir(root), baseSha));
 	const input = { repoRoot: root, config, changes, readCurrent: read, readBase: (file: string) => fileAt(root, baseSha, file), baseline };
-	// Tests run only for files whose functions the change touches: a copy edit costs nothing.
-	const touched = [...new Set(checkChange({ ...input, coverage: new Map() }).verdicts.map((verdict) => verdict.file))];
-	assertCommitted(root, config, options, touched);
-	const collected = touched.length
-		? collectCoverage({ root, config, files: touched, mode: 'test', run: options.run, trackedFiles: trackedFiles(root) })
-		: { coverage: new Map() as LineCoverage, warnings: [] as string[], unmeasured: [] as string[] };
-	const result = checkChange({ ...input, coverage: collected.coverage, unmeasured: collected.unmeasured });
+	// Judged at 0% coverage first: tests run only where coverage could change a verdict, so a copy
+	// edit, a simple function or an old one that did not get more complex costs no test run.
+	const atZero = checkChange({ ...input, coverage: new Map() });
+	assertCommitted(root, config, options, filesOf(atZero.verdicts));
+	const pending = pendingFiles(atZero, config.threshold);
+	// --no-run reads the reports on disk for every touched file: they cost nothing.
+	const collected: Measurement = !options.run
+		? collectCoverage({ root, config, files: filesOf(atZero.verdicts), mode: 'test', run: false, trackedFiles: trackedFiles(root) })
+		: pending.length
+			? measureLazily(root, config, input, pending)
+			: { coverage: new Map(), warnings: [], coverageOf: () => 'none' };
+	const result = checkChange({ ...input, ...collected });
 	result.warnings.unshift(...collected.warnings);
 	console.log(options.format === 'json' ? jsonReport(result) : markdownReport(result, config.threshold));
 	if (result.failed) return 1;

@@ -318,6 +318,85 @@ describe('crap-check', () => {
 	});
 });
 
+describe('running tests only where coverage could change a verdict', () => {
+	const config = (pkg: object) =>
+		write('crap.config.json', JSON.stringify({ base: 'main', packages: [{ root: '.', coverage: 'lcov.info', ...pkg }] }));
+	const ran = (marker: string) => fs.existsSync(path.join(repo, marker));
+	const writes = (lines: string, marker: string) => `touch ${marker}; printf 'SF:src/price.ts\\n${lines}end_of_record\\n' > lcov.info`;
+	const full = 'DA:2,1\\nDA:3,1\\nDA:4,1\\n';
+
+	it('runs no tests for functions that pass at any coverage', () => {
+		config({ test: 'touch ran; exit 1' });
+		write('src/add.ts', 'export function add(a, b) {\n\treturn a + b + 1;\n}\n');
+		write('src/twice.ts', 'export const twice = (n) => (n > 0 ? n * 2 : 0);\n');
+		commit('simple');
+		expect(run()).toBe(0);
+		expect(ran('ran')).toBe(false);
+		expect(output.join('\n')).toContain('| – | 1 | – | `src/add.ts:1` add | ✓ changed: passes at any coverage |');
+		expect(output.join('\n')).toContain('2 decided by complexity alone, without running tests.');
+	});
+
+	it('runs no tests for an old function that did not get more complex, and does not claim it is let through', () => {
+		git('checkout', '-q', 'main');
+		write('src/price.ts', branchy);
+		commit('price');
+		git('checkout', '-qb', 'edit');
+		config({ test: 'touch ran; exit 1' });
+		write('src/price.ts', branchy.replace('return 1;', 'return 10;'));
+		commit('edit price');
+		expect(run()).toBe(0);
+		expect(ran('ran')).toBe(false);
+		expect(output.join('\n')).toContain('| – | 6 | – | `src/price.ts:1` price | ✓ changed: not more complex; not measured (it cannot fail) |');
+		expect(output.join('\n')).not.toContain('Let through');
+	});
+
+	it('still fails without tests what no coverage can pass', () => {
+		config({ test: 'touch ran; exit 1' });
+		const huge = `export function huge(x) {\n${Array.from({ length: 31 }, (_, i) => `\tif (x === ${i}) return ${i};`).join('\n')}\n\treturn -1;\n}\n`;
+		write('src/huge.ts', huge);
+		commit('huge');
+		expect(run()).toBe(1);
+		expect(ran('ran')).toBe(false);
+		expect(output.join('\n')).toContain('| – | 32 | – | `src/huge.ts:1` huge | ✗ new: new function over 30 |');
+	});
+
+	it('stops after testFirst when its coverage passes what needed coverage', () => {
+		config({ testFirst: writes(full, 'first'), test: 'touch wide; exit 1' });
+		write('src/price.ts', branchy);
+		commit('price');
+		expect(run()).toBe(0);
+		expect([ran('first'), ran('wide')]).toEqual([true, false]);
+		expect(output.join('\n')).toContain('| 6.0 | 6 | 100% | `src/price.ts:1` price | ✓ new |');
+	});
+
+	it('runs test for what testFirst could not pass, and judges by its coverage', () => {
+		config({ testFirst: writes('DA:2,0\\n', 'first'), test: writes(full, 'wide') });
+		write('src/price.ts', branchy);
+		commit('price');
+		expect(run()).toBe(0);
+		expect([ran('first'), ran('wide')]).toEqual([true, true]);
+		expect(output.join('\n')).toContain('| 6.0 | 6 | 100% | `src/price.ts:1` price | ✓ new |');
+	});
+
+	it('goes on to test when testFirst writes no report, without calling the package unmeasured', () => {
+		config({ testFirst: 'true', test: writes(full, 'wide') });
+		write('src/price.ts', branchy);
+		commit('price');
+		expect(run()).toBe(0);
+		expect(output.join('\n')).not.toContain('no coverage report');
+	});
+
+	it('--no-run still measures every touched function from the reports on disk', () => {
+		write('src/price.ts', branchy.replace('return 1;', 'return 10;'));
+		write('src/add.ts', 'export function add(a, b) {\n\treturn a + b + 1;\n}\n');
+		write('lcov.info', 'SF:src/add.ts\nDA:2,1\nend_of_record\n');
+		commit('price and add');
+		expect(run('--no-run')).toBe(1);
+		expect(output.join('\n')).toContain('| 1.0 | 1 | 100% | `src/add.ts:1` add | ✓ changed |');
+		expect(output.join('\n')).not.toContain('decided by complexity alone');
+	});
+});
+
 describe('arguments', () => {
 	it('parses commands and options', () => {
 		expect(parseArgs(['baseline', '--output', 'b.json', '--no-run'])).toMatchObject({

@@ -82,6 +82,7 @@ needs `@vitest/coverage-v8`, jest has coverage built in.
 | `base` | Branch the change is compared with. Default `origin/main`. |
 | `packages[].root` | Package directory. Monorepos list one entry per package. |
 | `packages[].test` | Runs the tests for the change, with coverage. `{files}` becomes the changed files, `{tests}` the test files that mention them, both relative to `root`. |
+| `packages[].testFirst` | Optional quicker first run, usually `vitest run … {tests}`. What passes with its coverage passes; `test` runs only for files where something still fails. See "Which tests run". |
 | `packages[].tests` | Globs of test files for `{tests}`. Default `**/*.{test,spec}.*`. |
 | `packages[].testsDepth` | `{tests}`: 1 = tests that mention a changed module; 2 (default) = also tests of modules that mention it. |
 | `packages[].testAll` | Runs the whole suite with coverage, for `baseline` and `--all`. |
@@ -155,7 +156,8 @@ npx crap-check baseline   # store the CRAP of every function at HEAD (run on the
 Exit codes: `0` passed, `1` a function failed, `2` no verdict: crap-check could not run, or a
 package's tests wrote no coverage report. A failure in a measured package wins: `1`.
 
-Tests run only when the change touches a function, so a copy edit in a source file costs nothing.
+Tests run only where coverage could change a verdict (see "Which tests run"), so a copy edit, a
+simple function or an old function that did not get more complex costs no test run.
 Failing tests do not stop the check: it gates CRAP, not tests. They show up as a warning and their
 partial coverage counts. Tests that do not start at all (missing dependencies or coverage provider)
 write no report: those functions show `? not measured` instead of a guessed 0%, and the check exits
@@ -164,6 +166,41 @@ write no report: those functions show `? not measured` instead of a guessed 0%, 
 
 To judge an older commit with a config it does not have yet, check the commit out, put the config
 in the working tree and run `crap-check --base <its parent>` (without `--ref`).
+
+### Which tests run
+
+Coverage only lowers CRAP, and with no coverage CRAP is complexity² + complexity. So before running
+anything, crap-check judges the change at 0% coverage:
+
+- A function that passes at 0% passes at any coverage: complexity 5 or less at threshold 30.
+- A new function, or a changed one that got more complex, with complexity over the threshold fails at
+  any coverage.
+- A changed function that did not get more complex cannot fail: coverage only decides whether it
+  is let through.
+
+Tests run only for files with a function in between: complexity 6 to 30, new or more complex. The
+table shows `–` for functions decided without tests and says so. A changed function that did not get
+more complex is then shown as passing, "not measured (it cannot fail)", not as let through: whether it
+lacks tests is only known from a full run (`--no-run` after the whole suite, as in CI, measures every
+touched function).
+
+With `testFirst`, those files first get the narrow run. Fewer tests can only mean less coverage, so a
+function that passes with it passes for sure; `test` (the runner's "related tests") runs only for the
+files where something still fails, and its coverage decides. Any subset works, so make it much cheaper
+than `test`, or a change that still fails pays for both: take the tests that name the changed module
+(`{tests}`, `testsDepth: 1` in a tightly coupled suite) and leave out slow browser or render tests
+through the package's `tests` globs, for example `["**/!(*-stage|*-e2e).test.ts"]`. A test suite where most modules import
+each other makes "related" close to the whole suite; `testFirst` over `{tests}` keeps most checks to a
+few test files:
+
+```json
+{
+	"root": ".",
+	"testFirst": "npx vitest run --coverage.enabled --coverage.reporter=lcov {tests}",
+	"test": "npx vitest related --run --coverage.enabled --coverage.reporter=lcov {files}",
+	"coverage": "coverage/lcov.info"
+}
+```
 
 ### Changed functions and the baseline
 

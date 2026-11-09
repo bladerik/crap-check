@@ -11,6 +11,11 @@ export type PackageConfig = {
 	 * runner's own "related tests" pulls in too much (a module that imports everything).
 	 */
 	test?: string;
+	/**
+	 * Optional quicker first run, usually over `{tests}`. Its coverage is a lower bound, so whatever
+	 * passes with it passes; `test` runs only for files where something still fails.
+	 */
+	testFirst?: string;
 	/** Globs of test files, relative to `root`, searched for `{tests}`. */
 	tests?: string[];
 	/** `{tests}`: 1 = tests that mention the changed module, 2 (default) = also through one module between. */

@@ -3,7 +3,7 @@
  * processes here: the caller passes everything in, so this is easy to test.
  */
 import path from 'node:path';
-import { judge, pairFunctions, touchedFunctions } from './compare.js';
+import { judge, pairFunctions, touchedFunctions, withoutCoverage } from './compare.js';
 import { packageFor } from './config.js';
 import { functionCoverage, looksSourceMapped } from './coverage.js';
 import { crapScore, round1 } from './crap.js';
@@ -86,6 +86,20 @@ function unmeasuredIn(input) {
     const roots = new Set(input.unmeasured ?? []);
     return (verdict) => roots.has(packageFor(input.config, verdict.file)?.root ?? '') ? { ...verdict, status: 'unmeasured', reason: 'no coverage report' } : verdict;
 }
+/**
+ * Verdicts from less than full coverage: without any, the verdict holds at any coverage; with the
+ * narrow first run, a pass is proven, while a let through needs the full run, so it is not claimed.
+ */
+function lazyIn(input) {
+    return (verdict) => {
+        const how = input.coverageOf?.(verdict.file) ?? 'full';
+        if (how === 'full' || verdict.status === 'unmeasured')
+            return verdict;
+        if (how === 'partial' && verdict.status !== 'warn')
+            return verdict;
+        return withoutCoverage(verdict);
+    };
+}
 /** Every path the change touches, old paths of renames and deletions included. */
 const touchedPaths = (changes) => [...new Set(changes.flatMap((change) => [change.file, change.previousFile].filter((file) => Boolean(file))))];
 export function checkChange(input) {
@@ -97,6 +111,7 @@ export function checkChange(input) {
     const verdicts = views
         .flatMap((view) => touchedFunctions(view.head, view.change.addedLines).map((fn) => judge(fn, matchFor(view, fn, moves), input.config.threshold)))
         .map(unmeasuredIn(input))
+        .map(lazyIn(input))
         .sort((a, b) => severity[a.status] - severity[b.status] || b.crap - a.crap);
     const changedFiles = touchedPaths(input.changes);
     return {

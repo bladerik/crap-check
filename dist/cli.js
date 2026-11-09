@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import picomatch from 'picomatch';
 import { checkChange, measureFile } from './analyze.js';
 import { baselinePath, readBaseline, writeBaseline } from './baseline.js';
+import { needsCoverage } from './compare.js';
 import { CONFIG_FILE, loadConfig, packageFor } from './config.js';
 import { collectCoverage } from './collect.js';
 import { changedFiles, fileAt, gitCommonDir, headSha, mergeBase, repoRoot, trackedFiles as gitTrackedFiles, uncommittedFiles } from './git.js';
@@ -152,19 +153,51 @@ export function coverageOutput(config) {
     });
     return (file) => outputs.some(({ report, folder }) => file === report || (folder !== undefined && file.startsWith(folder)));
 }
+const filesOf = (verdicts) => [...new Set(verdicts.map((verdict) => verdict.file))];
+/** Files with a verdict that coverage could still change. */
+const pendingFiles = (result, threshold) => filesOf(result.verdicts.filter((verdict) => needsCoverage(verdict, threshold)));
+/**
+ * Runs tests only where coverage could change a verdict: first the package's `testFirst` (a narrow,
+ * quick run) where it has one, then `test` for the files where something still fails.
+ */
+function measureLazily(root, config, input, pending) {
+    const full = new Set();
+    const partial = new Set();
+    const coverageOf = (file) => (full.has(file) ? 'full' : partial.has(file) ? 'partial' : 'none');
+    const collect = (files, mode) => collectCoverage({ root, config, files, mode, run: true, trackedFiles: trackedFiles(root) });
+    const first = pending.filter((file) => packageFor(config, file)?.testFirst);
+    const narrow = first.length ? collect(first, 'testFirst') : { coverage: new Map(), warnings: [] };
+    const failing = new Set(pendingFiles(checkChange({ ...input, coverage: narrow.coverage }), config.threshold));
+    for (const file of first)
+        if (!failing.has(file))
+            partial.add(file);
+    const rest = pending.filter((file) => !partial.has(file));
+    if (rest.length === 0)
+        return { coverage: narrow.coverage, warnings: narrow.warnings, coverageOf };
+    const wide = collect(rest, 'test');
+    for (const file of rest)
+        full.add(file);
+    const coverage = new Map([...narrow.coverage, ...wide.coverage]);
+    return { coverage, warnings: [...narrow.warnings, ...wide.warnings], unmeasured: wide.unmeasured, coverageOf };
+}
 function runCheck(root, config, options) {
     const baseSha = mergeBase(root, options.base ?? config.base, options.ref);
     const changes = changedFiles(root, baseSha, options.ref);
     const read = options.ref ? (file) => fileAt(root, options.ref, file) : readCurrent(root);
     const baseline = readBaseline(options.baselineFile ?? baselinePath(gitCommonDir(root), baseSha));
     const input = { repoRoot: root, config, changes, readCurrent: read, readBase: (file) => fileAt(root, baseSha, file), baseline };
-    // Tests run only for files whose functions the change touches: a copy edit costs nothing.
-    const touched = [...new Set(checkChange({ ...input, coverage: new Map() }).verdicts.map((verdict) => verdict.file))];
-    assertCommitted(root, config, options, touched);
-    const collected = touched.length
-        ? collectCoverage({ root, config, files: touched, mode: 'test', run: options.run, trackedFiles: trackedFiles(root) })
-        : { coverage: new Map(), warnings: [], unmeasured: [] };
-    const result = checkChange({ ...input, coverage: collected.coverage, unmeasured: collected.unmeasured });
+    // Judged at 0% coverage first: tests run only where coverage could change a verdict, so a copy
+    // edit, a simple function or an old one that did not get more complex costs no test run.
+    const atZero = checkChange({ ...input, coverage: new Map() });
+    assertCommitted(root, config, options, filesOf(atZero.verdicts));
+    const pending = pendingFiles(atZero, config.threshold);
+    // --no-run reads the reports on disk for every touched file: they cost nothing.
+    const collected = !options.run
+        ? collectCoverage({ root, config, files: filesOf(atZero.verdicts), mode: 'test', run: false, trackedFiles: trackedFiles(root) })
+        : pending.length
+            ? measureLazily(root, config, input, pending)
+            : { coverage: new Map(), warnings: [], coverageOf: () => 'none' };
+    const result = checkChange({ ...input, ...collected });
     result.warnings.unshift(...collected.warnings);
     console.log(options.format === 'json' ? jsonReport(result) : markdownReport(result, config.threshold));
     if (result.failed)

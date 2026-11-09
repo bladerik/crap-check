@@ -4,7 +4,7 @@
  */
 import path from 'node:path';
 import type { Baseline } from './baseline.js';
-import { judge, pairFunctions, touchedFunctions, type BaseFunction, type Match, type Measured, type Verdict } from './compare.js';
+import { judge, pairFunctions, touchedFunctions, withoutCoverage, type BaseFunction, type Match, type Measured, type Verdict } from './compare.js';
 import { packageFor, type Config, type ReviewTier } from './config.js';
 import { functionCoverage, looksSourceMapped, type LineCoverage } from './coverage.js';
 import { crapScore, round1 } from './crap.js';
@@ -25,6 +25,12 @@ export type CheckInput = {
 	baseline?: Baseline;
 	/** Package roots that wrote no coverage report: their functions get no verdict. */
 	unmeasured?: string[];
+	/**
+	 * Which coverage a repo-relative file got when tests ran only where coverage could change a
+	 * verdict: `full` from the package's `test` command, `partial` from `testFirst` (enough to pass
+	 * what it had to), `none` (no tests ran). Absent: every file is fully measured.
+	 */
+	coverageOf?: (file: string) => 'full' | 'partial' | 'none';
 };
 
 export type CheckResult = {
@@ -122,6 +128,19 @@ function unmeasuredIn(input: CheckInput): (verdict: Verdict) => Verdict {
 		roots.has(packageFor(input.config, verdict.file)?.root ?? '') ? { ...verdict, status: 'unmeasured', reason: 'no coverage report' } : verdict;
 }
 
+/**
+ * Verdicts from less than full coverage: without any, the verdict holds at any coverage; with the
+ * narrow first run, a pass is proven, while a let through needs the full run, so it is not claimed.
+ */
+function lazyIn(input: CheckInput): (verdict: Verdict) => Verdict {
+	return (verdict) => {
+		const how = input.coverageOf?.(verdict.file) ?? 'full';
+		if (how === 'full' || verdict.status === 'unmeasured') return verdict;
+		if (how === 'partial' && verdict.status !== 'warn') return verdict;
+		return withoutCoverage(verdict);
+	};
+}
+
 /** Every path the change touches, old paths of renames and deletions included. */
 const touchedPaths = (changes: FileChange[]) =>
 	[...new Set(changes.flatMap((change) => [change.file, change.previousFile].filter((file): file is string => Boolean(file))))];
@@ -137,6 +156,7 @@ export function checkChange(input: CheckInput): CheckResult {
 			touchedFunctions(view.head, view.change.addedLines).map((fn) => judge(fn, matchFor(view, fn, moves), input.config.threshold))
 		)
 		.map(unmeasuredIn(input))
+		.map(lazyIn(input))
 		.sort((a, b) => severity[a.status] - severity[b.status] || b.crap - a.crap);
 	const changedFiles = touchedPaths(input.changes);
 	return {

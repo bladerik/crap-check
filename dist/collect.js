@@ -60,7 +60,8 @@ export function collectCoverage(options) {
             continue;
         if (fs.existsSync(report))
             mergeCoverage(coverage, readCoverage(report, packageRoot));
-        else {
+        // A first run without a report only sends its files on to the full run.
+        else if (options.mode !== 'testFirst') {
             unmeasured.push(pkg.root);
             warnings.push(`no coverage report at ${path.relative(options.root, report) || report}: the tests did not start or wrote no coverage ` +
                 '(missing dependencies or coverage provider?). Functions there are not measured.');

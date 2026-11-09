@@ -14,7 +14,7 @@ export type CollectOptions = {
 	config: Config;
 	/** Changed (or all) repo-relative source files. */
 	files: string[];
-	mode: 'test' | 'testAll';
+	mode: 'test' | 'testAll' | 'testFirst';
 	run: boolean;
 	/** All tracked repo-relative files, to find test files for `{tests}`. */
 	trackedFiles: () => string[];
@@ -76,7 +76,8 @@ export function collectCoverage(options: CollectOptions): Collected {
 		const outcome = runPackage(options, pkg, report, warnings);
 		if (outcome !== 'ran') continue;
 		if (fs.existsSync(report)) mergeCoverage(coverage, readCoverage(report, packageRoot));
-		else {
+		// A first run without a report only sends its files on to the full run.
+		else if (options.mode !== 'testFirst') {
 			unmeasured.push(pkg.root);
 			warnings.push(
 				`no coverage report at ${path.relative(options.root, report) || report}: the tests did not start or wrote no coverage ` +

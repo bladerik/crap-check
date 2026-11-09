@@ -31,7 +31,7 @@ const escapeCell = (text: string) => text.replace(/\|/g, '\\|');
 
 function row(verdict: Verdict): string {
 	const where = `\`${escapeCell(`${verdict.file}:${verdict.startLine}`)}\` ${escapeCell(verdict.name)}`;
-	const measured = verdict.status !== 'unmeasured';
+	const measured = verdict.status !== 'unmeasured' && verdict.measured !== false;
 	const crap = measured ? crapCell(verdict) : '–';
 	return `| ${crap} | ${verdict.complexity} | ${measured ? percent(verdict.coverage) : '–'} | ${where} | ${resultCell(verdict)} |`;
 }
@@ -54,7 +54,12 @@ export function markdownReport(result: CheckResult, threshold: number): string {
 		const warned = result.verdicts.filter((verdict) => verdict.status === 'warn').length;
 		const unmeasured = result.verdicts.filter((verdict) => verdict.status === 'unmeasured').length;
 		const notMeasured = unmeasured ? `, ${unmeasured} not measured` : '';
-		lines.push('', `${result.verdicts.length} function(s) checked against CRAP ${threshold}: ${failed} failed, ${warned} let through${notMeasured}.`);
+		const byComplexity = result.verdicts.filter((verdict) => verdict.measured === false).length;
+		const withoutTests = byComplexity ? ` ${byComplexity} decided by complexity alone, without running tests.` : '';
+		lines.push(
+			'',
+			`${result.verdicts.length} function(s) checked against CRAP ${threshold}: ${failed} failed, ${warned} let through${notMeasured}.${withoutTests}`
+		);
 		if (unmeasured) lines.push('', 'Not measured: fix the test setup (see the warning below) and run again; the check exits 2 until then.');
 		lines.push(...letThroughLines(result.verdicts, threshold));
 	}
