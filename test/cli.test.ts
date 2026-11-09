@@ -140,6 +140,14 @@ describe('crap-check', () => {
 		expect(run('--no-run', '--ref', 'HEAD')).toBe(1); // the committed threshold, 30, applies
 	});
 
+	it('with --ref refuses an uncommitted test fixture, which could lend coverage', () => {
+		write('src/price.ts', branchy);
+		commit('untested price');
+		write('src/cases.json', '[1, 2, 3]\n');
+		expect(run('--no-run', '--ref', 'HEAD')).toBe(2);
+		expect(output.join('\n')).toMatch(/uncommitted changes in \. \(src\/cases\.json\)/);
+	});
+
 	it('does not let a same-named callback inserted above an old one pass as the old one', () => {
 		git('checkout', '-q', 'main');
 		const handler = (body: string) => `app.use((req, res) => {\n${body}\n});\n`;

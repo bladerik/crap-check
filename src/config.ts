@@ -71,7 +71,8 @@ export const DEFAULTS: Omit<Config, 'packages'> = {
  */
 export function loadConfig(repoRoot: string, file = CONFIG_FILE, readText?: (file: string) => string | undefined): Config {
 	const configPath = path.resolve(repoRoot, file);
-	const text = readText ? readText(file) : fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : undefined;
+	// At a ref the file is looked up by its repo-relative path, also when given as an absolute one.
+	const text = readText ? readText(path.relative(repoRoot, configPath)) : fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : undefined;
 	const raw = text === undefined ? {} : (JSON.parse(text) as Partial<Config>);
 	const config: Config = { ...DEFAULTS, packages: [{ root: '.', coverage: 'coverage/lcov.info' }], ...raw };
 	if (raw.exclude && raw.excludeDefaults !== false) config.exclude = [...DEFAULTS.exclude, ...raw.exclude];

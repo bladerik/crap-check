@@ -81,6 +81,16 @@ describe('pairing with base', () => {
 		]);
 	});
 
+	it('keeps an edited route paired with itself when a new route reuses its old body', () => {
+		const old = '(req) => { if (req.a) return 1; if (req.b) return 2; return 3; }';
+		const base = `app.get('/legacy', ${old});`;
+		const head = `app.get('/legacy', (req) => 1);\napp.get('/reports', ${old});`;
+		expect(pairedNames(head, base)).toEqual([
+			"app.get('/legacy', <callback>) -> app.get('/legacy', <callback>)",
+			"app.get('/reports', <callback>) -> -"
+		]);
+	});
+
 	it('tells calls apart by their other arguments', () => {
 		const names = findFunctions('a.ts', "app.get('/a', (r) => 1);\napp.get('/b', (r) => 2);").map((f) => f.name);
 		expect(names).toEqual(["app.get('/a', <callback>)", "app.get('/b', <callback>)"]);

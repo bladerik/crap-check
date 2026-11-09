@@ -72,15 +72,13 @@ const inNestedBody = (line: number, ranges: Array<[number, number]>) =>
  */
 export function functionCoverage(fn: FunctionInfo, lines: Map<number, number> | undefined): number {
 	if (!lines) return 0;
-	let total = 0;
-	let covered = 0;
-	for (const [line, hits] of lines) {
-		if (line < fn.startLine || line > fn.endLine || inNestedBody(line, fn.nestedRanges)) continue;
-		if (fn.sharedLines?.includes(line)) continue; // runs with the surrounding code, not the function
-		total++;
-		if (hits > 0) covered++;
-	}
-	return total === 0 ? 0 : covered / total;
+	const own = [...lines].filter(([line]) => line >= fn.startLine && line <= fn.endLine && !inNestedBody(line, fn.nestedRanges));
+	// Shared first/last lines run with the surrounding code; drop them unless they are all there is
+	// (a one-line function), where they are the only evidence the function ran.
+	const unshared = own.filter(([line]) => !fn.sharedLines?.includes(line));
+	const counted = unshared.length > 0 ? unshared : own;
+	if (counted.length === 0) return 0;
+	return counted.filter(([, hits]) => hits > 0).length / counted.length;
 }
 
 /**

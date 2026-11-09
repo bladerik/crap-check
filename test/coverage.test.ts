@@ -51,6 +51,11 @@ describe('function coverage', () => {
 		expect(functionCoverage(inline, new Map([[10, 1], [15, 0], [20, 1]]))).toBe(0);
 	});
 
+	it('still counts a one-line function, where the shared line is the only evidence it ran', () => {
+		const oneLine: FunctionInfo = { ...fn, startLine: 10, endLine: 10, nestedRanges: [], sharedLines: [10] };
+		expect(functionCoverage(oneLine, new Map([[10, 5]]))).toBe(1);
+	});
+
 	it('treats a function missing from the report as untested', () => {
 		expect(functionCoverage(fn, undefined)).toBe(0);
 		expect(functionCoverage(fn, new Map([[1, 1]]))).toBe(0);

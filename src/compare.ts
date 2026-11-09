@@ -62,11 +62,14 @@ const countBy = (names: string[]) => {
 export const calleeKey = (name: string) => stem(name).replace(/\((?:[^()]|\([^()]*\))*\)$/, '');
 
 /**
- * Pairs the head functions of one file with their base versions (head index -> base index):
- * 1. an identical body under the same callee;
+ * Pairs the head functions of one file with their base versions (head index -> base index). Each
+ * stage only sees what earlier stages left:
+ * 1. an identical body under the same name stem;
  * 2. the same name, when that stem occurs equally often on both sides (nothing inserted or removed);
- * 3. the most similar body under the same callee (at least half of the identifiers shared), best
- *    pairs first, so a new function inserted above an edited one cannot take its place.
+ * 3. an identical body under the same callee (a hook's deps or a route's path changed);
+ * 4. the most similar body under the same stem, then under the same callee (at least half of the
+ *    identifiers shared, best pairs first, so a new function inserted above cannot take the place
+ *    of an edited one).
  * Repeat labels (`#2`) shift when a same-named callback is inserted, so they never decide alone.
  */
 export function pairFunctions(head: FunctionInfo[], base: BaseFunction[]): Map<number, number> {
@@ -76,24 +79,33 @@ export function pairFunctions(head: FunctionInfo[], base: BaseFunction[]): Map<n
 		pairs.set(h, b);
 		used.add(b);
 	};
-	const open = (h: number) =>
-		base.map((_, b) => b).filter((b) => !used.has(b) && calleeKey(base[b].name) === calleeKey(head[h].name));
-	head.forEach((fn, h) => {
-		const same = open(h).find((b) => base[b].bodyHash === fn.bodyHash);
-		if (same !== undefined) pair(h, same);
-	});
+	const key = { stem, callee: calleeKey };
+	const open = (h: number, by: keyof typeof key) =>
+		base.map((_, b) => b).filter((b) => !used.has(b) && key[by](base[b].name) === key[by](head[h].name));
+	const byBody = (by: keyof typeof key) =>
+		head.forEach((fn, h) => {
+			if (pairs.has(h)) return;
+			const same = open(h, by).find((b) => base[b].bodyHash === fn.bodyHash);
+			if (same !== undefined) pair(h, same);
+		});
+	const bySimilarity = (by: keyof typeof key) => {
+		const candidates = head
+			.flatMap((fn, h) => (pairs.has(h) ? [] : open(h, by).map((b) => ({ h, b, score: similarity(fn.bodyText, base[b].bodyText ?? '') }))))
+			.filter((candidate) => candidate.score >= 0.5)
+			.sort((x, y) => y.score - x.score);
+		for (const { h, b } of candidates) if (!pairs.has(h) && !used.has(b)) pair(h, b);
+	};
+	byBody('stem');
 	const headCounts = countBy(head.map((fn) => fn.name));
 	const baseCounts = countBy(base.map((fn) => fn.name));
 	head.forEach((fn, h) => {
 		if (pairs.has(h) || headCounts.get(stem(fn.name)) !== baseCounts.get(stem(fn.name))) return;
-		const byName = open(h).find((b) => base[b].name === fn.name);
+		const byName = open(h, 'stem').find((b) => base[b].name === fn.name);
 		if (byName !== undefined) pair(h, byName);
 	});
-	const candidates = head
-		.flatMap((fn, h) => (pairs.has(h) ? [] : open(h).map((b) => ({ h, b, score: similarity(fn.bodyText, base[b].bodyText ?? '') }))))
-		.filter((candidate) => candidate.score >= 0.5)
-		.sort((x, y) => y.score - x.score);
-	for (const { h, b } of candidates) if (!pairs.has(h) && !used.has(b)) pair(h, b);
+	byBody('callee');
+	bySimilarity('stem');
+	bySimilarity('callee');
 	return pairs;
 }
 

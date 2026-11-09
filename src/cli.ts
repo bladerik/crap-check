@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import picomatch from 'picomatch';
 import { checkChange, measureFile } from './analyze.js';
 import { baselinePath, readBaseline, writeBaseline, type Baseline } from './baseline.js';
-import { loadConfig, packageFor, type Config } from './config.js';
+import { CONFIG_FILE, loadConfig, packageFor, type Config } from './config.js';
 import type { LineCoverage } from './coverage.js';
 import { collectCoverage } from './collect.js';
 import { changedFiles, fileAt, gitCommonDir, headSha, mergeBase, repoRoot, trackedFiles as gitTrackedFiles, uncommittedFiles } from './git.js';
@@ -101,11 +101,14 @@ function runAll(root: string, config: Config, options: Options): number {
  * Uncommitted code in the packages being checked (a test not yet committed, for example) would lend
  * the commit coverage it does not have, so refuse.
  */
-function assertCommitted(root: string, config: Config, ref: string | undefined, sources: string[]): void {
+function assertCommitted(root: string, config: Config, options: Options, sources: string[]): void {
+	const ref = options.ref;
 	if (!ref) return;
 	const roots = [...new Set(sources.flatMap((file) => packageFor(config, file)?.root ?? []))];
-	const isCode = picomatch(config.include, { dot: true }); // sources and tests; notes or docs cannot change coverage
-	const dirty = uncommittedFiles(root, ref, roots).filter((file) => isCode(file));
+	// Sources, tests and fixtures all shape coverage; notes, docs and the config (read from the ref) cannot.
+	const isDoc = picomatch(['**/*.{md,mdx,txt}'], { dot: true });
+	const configFile = path.relative(root, path.resolve(root, options.config ?? CONFIG_FILE));
+	const dirty = uncommittedFiles(root, ref, roots).filter((file) => !isDoc(file) && file !== configFile);
 	if (dirty.length === 0) return;
 	const listed = dirty.slice(0, 5).join(', ') + (dirty.length > 5 ? ', …' : '');
 	throw new Error(`uncommitted changes in ${roots.join(', ')} (${listed}): commit or stash them first; the tests run on the working tree`);
@@ -117,7 +120,7 @@ function runCheck(root: string, config: Config, options: Options): number {
 	const isSource = sourceFileFilter(config);
 	const read = options.ref ? (file: string) => fileAt(root, options.ref!, file) : readCurrent(root);
 	const sources = changes.map((change) => change.file).filter((file) => isSource(file) && read(file) !== undefined);
-	assertCommitted(root, config, options.ref, sources);
+	assertCommitted(root, config, options, sources);
 	const collected = sources.length
 		? collectCoverage({ root, config, files: sources, mode: 'test', run: options.run, trackedFiles: trackedFiles(root) })
 		: { coverage: new Map() as LineCoverage, warnings: [] as string[] };

@@ -27,7 +27,8 @@ export const DEFAULTS = {
  */
 export function loadConfig(repoRoot, file = CONFIG_FILE, readText) {
     const configPath = path.resolve(repoRoot, file);
-    const text = readText ? readText(file) : fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : undefined;
+    // At a ref the file is looked up by its repo-relative path, also when given as an absolute one.
+    const text = readText ? readText(path.relative(repoRoot, configPath)) : fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : undefined;
     const raw = text === undefined ? {} : JSON.parse(text);
     const config = { ...DEFAULTS, packages: [{ root: '.', coverage: 'coverage/lcov.info' }], ...raw };
     if (raw.exclude && raw.excludeDefaults !== false)
