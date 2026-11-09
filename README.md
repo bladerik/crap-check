@@ -47,7 +47,7 @@ reviewers; copy changes: none).
 ## Install
 
 ```sh
-npm install --save-dev @bladerik/crap-check
+npm install --save-dev @bladesk/crap-check
 ```
 
 Requires Node 22+ and git. Your tests must write a coverage report (LCOV or istanbul JSON); vitest
