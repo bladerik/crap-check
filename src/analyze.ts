@@ -131,7 +131,9 @@ function unmeasuredIn(input: CheckInput): (verdict: Verdict) => Verdict {
 	const fromThatRun = (file: string) => (input.coverageOf?.(file) ?? 'full') === 'full';
 	return (verdict) => {
 		if (!roots.has(packageFor(input.config, verdict.file)?.root ?? '') || !fromThatRun(verdict.file)) return verdict;
-		return needsCoverage(verdict, input.config.threshold) ? { ...verdict, status: 'unmeasured', reason: 'no coverage report' } : withoutCoverage(verdict);
+		if (needsCoverage(verdict, input.config.threshold)) return { ...verdict, status: 'unmeasured', reason: 'no coverage report' };
+		// Another package's tests ran it: a measured pass.
+		return verdict.status === 'ok' && verdict.coverage > 0 ? verdict : withoutCoverage(verdict);
 	};
 }
 

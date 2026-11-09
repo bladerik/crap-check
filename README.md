@@ -180,7 +180,8 @@ anything, crap-check judges the change at 0% coverage:
 
 Tests run only for files with a function in between: complexity 6 to 30, new or more complex.
 Coverage from every package's report adds up: a function another package's tests execute counts as
-tested. A package whose tests write no report leaves only those in-between functions "not measured". The
+tested. A package whose tests write no report leaves only those in-between functions "not measured",
+unless another package's tests cover them enough to pass. The
 table shows `–` for functions decided without tests and says so. A changed function that did not get
 more complex is then shown as passing, "not measured (it cannot fail)", not as let through: whether it
 lacks tests is only known from a full run (`--no-run` after the whole suite, as in CI, measures every

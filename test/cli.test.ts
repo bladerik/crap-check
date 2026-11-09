@@ -424,6 +424,16 @@ describe('running tests only where coverage could change a verdict', () => {
 			expect(text).toContain('| – | 6 | – | `src/other.ts:1` other | ? new: not measured (no coverage report) |');
 		});
 
+		it("shows a pass another package's tests measured, while the own package wrote no report", () => {
+			packages({ test: covers('../b/price.ts', full) }, { test: 'true' });
+			write('a/add.ts', 'export function add(a, b) {\n\treturn a && b ? a + b : 0;\n}\n');
+			write('a/other.ts', branchy.replace('price', 'other'));
+			write('b/price.ts', branchy);
+			commit('a covers b');
+			expect(run()).toBe(1); // a/other.ts: a's report does not cover it
+			expect(output.join('\n')).toContain('| 6.0 | 6 | 100% | `b/price.ts:1` price | ✓ new |');
+		});
+
 		it('keeps the coverage that settled a file when the full run, for another file, reports it lower', () => {
 			const both = (a: string, b: string) => `printf 'SF:src/price.ts\\n${a}end_of_record\\nSF:src/other.ts\\n${b}end_of_record\\n' > lcov.info`;
 			config({ testFirst: both(full, ''), test: both('DA:2,0\\nDA:3,0\\nDA:4,0\\n', full) });
