@@ -148,6 +148,17 @@ describe('crap-check', () => {
 		expect(output.join('\n')).toMatch(/uncommitted changes in \. \(src\/cases\.json\)/);
 	});
 
+	it('with --ref is not stopped by the coverage report a previous run left behind', () => {
+		write('crap.config.json', JSON.stringify({ base: 'main', packages: [{ root: '.', coverage: 'coverage/lcov.info' }] }));
+		write('src/math.ts', simple);
+		commit('add');
+		write('coverage/lcov.info', 'SF:src/math.ts\nDA:2,1\nend_of_record\n');
+		write('coverage/lcov-report/index.html', '<html></html>\n');
+		expect(run('--no-run', '--ref', 'HEAD')).toBe(0);
+		write('src/notes.json', '{}\n');
+		expect(run('--no-run', '--ref', 'HEAD')).toBe(2);
+	});
+
 	it('does not let a same-named callback inserted above an old one pass as the old one', () => {
 		git('checkout', '-q', 'main');
 		const handler = (body: string) => `app.use((req, res) => {\n${body}\n});\n`;

@@ -108,10 +108,24 @@ function assertCommitted(root: string, config: Config, options: Options, sources
 	// Sources, tests and fixtures all shape coverage; notes, docs and the config (read from the ref) cannot.
 	const isDoc = picomatch(['**/*.{md,mdx,txt}'], { dot: true });
 	const configFile = path.relative(root, path.resolve(root, options.config ?? CONFIG_FILE));
-	const dirty = uncommittedFiles(root, ref, roots).filter((file) => !isDoc(file) && file !== configFile);
+	const isReport = coverageOutput(config);
+	const dirty = uncommittedFiles(root, ref, roots).filter((file) => !isDoc(file) && file !== configFile && !isReport(file));
 	if (dirty.length === 0) return;
 	const listed = dirty.slice(0, 5).join(', ') + (dirty.length > 5 ? ', …' : '');
 	throw new Error(`uncommitted changes in ${roots.join(', ')} (${listed}): commit or stash them first; the tests run on the working tree`);
+}
+
+/**
+ * The coverage reports the check itself writes (and, when a report sits in its own folder, that
+ * folder): left over from the last run, they must not stop the next one. Paths are repo-relative.
+ */
+export function coverageOutput(config: Config): (file: string) => boolean {
+	const outputs = config.packages.map((pkg) => {
+		const report = path.posix.normalize(path.posix.join(pkg.root, pkg.coverage));
+		const folder = path.posix.dirname(report);
+		return { report, folder: folder === path.posix.normalize(pkg.root) ? undefined : `${folder}/` };
+	});
+	return (file) => outputs.some(({ report, folder }) => file === report || (folder !== undefined && file.startsWith(folder)));
 }
 
 function runCheck(root: string, config: Config, options: Options): number {

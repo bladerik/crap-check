@@ -144,19 +144,31 @@ The hook must judge what is pushed, not the working tree, so it passes each push
 
 ```sh
 #!/bin/sh
-# .githooks/pre-push
+# .githooks/pre-push. Emergency only: CRAP_CHECK_SKIP=1 git push
+[ "${CRAP_CHECK_SKIP:-}" = "1" ] && exit 0
+if [ -x node_modules/.bin/crap-check ]; then run="node_modules/.bin/crap-check"
+elif command -v crap-check >/dev/null 2>&1; then run="crap-check"
+else echo "crap-check is not installed; skipping the CRAP check." >&2; exit 0
+fi
 head=$(git rev-parse HEAD)
 status=0
+checked=""
 while read -r local_ref local_sha remote_ref remote_sha; do
 	case "$local_sha" in *[!0]*) ;; *) continue ;; esac # branch deletion
+	case " $checked " in *" $local_sha "*) continue ;; esac
+	checked="$checked $local_sha"
 	if [ "$local_sha" != "$head" ]; then
-		echo "crap-check: $local_ref is not checked out; check it from its own checkout." >&2
+		# Its tests would run on the checked-out branch and lend it the wrong coverage.
+		echo "crap-check: $local_ref is not checked out; push it from its own checkout or worktree." >&2
+		status=1
 		continue
 	fi
-	npx --no-install crap-check --ref "$local_sha" || status=$?
+	$run --ref "$local_sha" || status=$?
 done
 exit $status
 ```
+
+The repository's own `devDependency` wins over a global install, so everyone runs the pinned version.
 
 ```sh
 chmod +x .githooks/pre-push && git config core.hooksPath .githooks

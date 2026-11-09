@@ -9,8 +9,8 @@ const root = '/repo/pkg';
 describe('reading coverage', () => {
 	it('reads LCOV line hits, resolving paths against the package root', () => {
 		const coverage = parseLcov('TN:\nSF:src/a.ts\nDA:1,3\nDA:2,0\nend_of_record\nSF:/abs/b.ts\nDA:5,1\nend_of_record\n', root);
-		expect(coverage.get(path.resolve(root, 'src/a.ts'))).toEqual(new Map([[1, 3], [2, 0]]));
-		expect(coverage.get('/abs/b.ts')).toEqual(new Map([[5, 1]]));
+		expect(new Map(coverage.get(path.resolve(root, 'src/a.ts')))).toEqual(new Map([[1, 3], [2, 0]]));
+		expect(new Map(coverage.get('/abs/b.ts'))).toEqual(new Map([[5, 1]]));
 	});
 
 	it('reads istanbul JSON statements by the line they start on', () => {
@@ -24,12 +24,12 @@ describe('reading coverage', () => {
 			}),
 			root
 		);
-		expect(coverage.get('/repo/pkg/src/a.ts')).toEqual(new Map([[2, 2], [4, 0]]));
+		expect(new Map(coverage.get('/repo/pkg/src/a.ts'))).toEqual(new Map([[2, 2], [4, 0]]));
 	});
 
 	it('merges reports, keeping the highest hit count per line', () => {
 		const merged = mergeCoverage(new Map([['/f', new Map([[1, 0]])]]), new Map([['/f', new Map([[1, 2], [3, 1]])]]));
-		expect(merged.get('/f')).toEqual(new Map([[1, 2], [3, 1]]));
+		expect(new Map(merged.get('/f'))).toEqual(new Map([[1, 2], [3, 1]]));
 	});
 });
 
@@ -54,6 +54,39 @@ describe('function coverage', () => {
 	it('still counts a one-line function, where the shared line is the only evidence it ran', () => {
 		const oneLine: FunctionInfo = { ...fn, startLine: 10, endLine: 10, nestedRanges: [], sharedLines: [10] };
 		expect(functionCoverage(oneLine, new Map([[10, 5]]))).toBe(1);
+	});
+
+	it('does not count a one-line function the report says was never called', () => {
+		const oneLine: FunctionInfo = { ...fn, startLine: 1, endLine: 1, nestedRanges: [], sharedLines: [1] };
+		const lcov = (calls: number) => `SF:src/a.ts\nFN:1,choose\nFNDA:${calls},choose\nDA:1,1\nend_of_record\n`;
+		const file = path.resolve(root, 'src/a.ts');
+		expect(functionCoverage(oneLine, parseLcov(lcov(0), root).get(file))).toBe(0);
+		expect(functionCoverage(oneLine, parseLcov(lcov(3), root).get(file))).toBe(1);
+	});
+
+	it('reads function calls from istanbul JSON and keeps them when reports merge', () => {
+		const oneLine: FunctionInfo = { ...fn, startLine: 1, endLine: 1, nestedRanges: [], sharedLines: [1] };
+		const report = (calls: number) =>
+			parseIstanbulJson(
+				JSON.stringify({
+					'/repo/pkg/src/a.ts': {
+						statementMap: { '0': { start: { line: 1 } } },
+						s: { '0': 1 },
+						fnMap: { '0': { name: 'choose', decl: { start: { line: 1 } } } },
+						f: { '0': calls }
+					}
+				}),
+				root
+			);
+		expect(functionCoverage(oneLine, report(0).get('/repo/pkg/src/a.ts'))).toBe(0);
+		const merged = mergeCoverage(report(0), report(2));
+		expect(functionCoverage(oneLine, merged.get('/repo/pkg/src/a.ts'))).toBe(1);
+	});
+
+	it('ignores function records for a function with lines of its own', () => {
+		const lcov = 'SF:src/a.ts\nFN:10,f\nFNDA:0,f\nDA:10,1\nDA:11,1\nDA:12,1\nend_of_record\n';
+		const lines = parseLcov(lcov, root).get(path.resolve(root, 'src/a.ts'));
+		expect(functionCoverage({ ...fn, nestedRanges: [], sharedLines: [10] }, lines)).toBe(1);
 	});
 
 	it('treats a function missing from the report as untested', () => {
