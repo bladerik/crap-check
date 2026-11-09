@@ -36,9 +36,14 @@ describe('reading coverage', () => {
 describe('function coverage', () => {
 	const fn: FunctionInfo = { name: 'f', startLine: 10, endLine: 20, complexity: 2, nestedRanges: [[14, 16]], bodyHash: 'x' };
 
-	it('counts only the function own lines, not those of nested functions', () => {
+	it('counts only the function own lines, not the body of nested functions', () => {
 		const lines = new Map([[11, 1], [12, 0], [15, 0], [21, 0]]);
 		expect(functionCoverage(fn, lines)).toBe(0.5);
+	});
+
+	it('keeps the first and last line of a nested function for the outer one, which holds code there too', () => {
+		const oneLineCallbacks: FunctionInfo = { ...fn, nestedRanges: [[11, 11], [12, 12]] };
+		expect(functionCoverage(oneLineCallbacks, new Map([[11, 0], [12, 0], [13, 1]]))).toBeCloseTo(1 / 3);
 	});
 
 	it('treats a function missing from the report as untested', () => {

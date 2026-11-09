@@ -6,14 +6,14 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { checkChange, measureFile } from './analyze.js';
 import { baselinePath, readBaseline, writeBaseline } from './baseline.js';
 import { loadConfig, packageFor } from './config.js';
 import { collectCoverage } from './collect.js';
-import { changedFiles, fileAt, filesDifferingFrom, gitCommonDir, headSha, mergeBase, repoRoot } from './git.js';
+import { changedFiles, fileAt, filesDifferingFrom, gitCommonDir, headSha, mergeBase, repoRoot, trackedFiles as gitTrackedFiles } from './git.js';
 import { jsonReport, markdownReport, topReport } from './report.js';
 import { sourceFileFilter } from './tiers.js';
-import { execFileSync } from 'node:child_process';
 class UsageError extends Error {
 }
 export function parseArgs(argv) {
@@ -55,9 +55,7 @@ const readCurrent = (root) => (file) => {
     const absolute = path.resolve(root, file);
     return fs.existsSync(absolute) ? fs.readFileSync(absolute, 'utf8') : undefined;
 };
-const trackedFiles = (root) => () => execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
-    .split('\n')
-    .filter(Boolean);
+const trackedFiles = (root) => () => gitTrackedFiles(root);
 function trackedSourceFiles(root, config) {
     const isSource = sourceFileFilter(config);
     return trackedFiles(root)().filter((file) => isSource(file) && packageFor(config, file));
@@ -112,9 +110,6 @@ function runCheck(root, config, options) {
     const baseline = readBaseline(options.baselineFile ?? baselinePath(gitCommonDir(root), baseSha));
     const result = checkChange({ repoRoot: root, config, changes, coverage, readCurrent: read, readBase: (file) => fileAt(root, baseSha, file), baseline });
     result.warnings.unshift(...warnings);
-    if (!baseline && result.verdicts.some((verdict) => verdict.kind !== 'new')) {
-        result.warnings.push(`no baseline for ${baseSha.slice(0, 12)}: changed functions are compared by complexity only (run \`crap-check baseline\` on the base branch)`);
-    }
     console.log(options.format === 'json' ? jsonReport(result) : markdownReport(result, config.threshold));
     return result.failed ? 1 : 0;
 }
@@ -132,6 +127,6 @@ export function main(argv) {
         return 2;
     }
 }
-const invokedDirectly = process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(new URL(import.meta.url).pathname);
+const invokedDirectly = process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url));
 if (invokedDirectly)
     process.exitCode = main(process.argv.slice(2));

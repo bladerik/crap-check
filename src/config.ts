@@ -35,7 +35,9 @@ export type Config = {
 	/** Branch the change is compared with. */
 	base: string;
 	include: string[];
+	/** Added to the default excludes (tests, builds, generated, config) unless `excludeDefaults` is false. */
 	exclude: string[];
+	excludeDefaults?: boolean;
 	packages: PackageConfig[];
 	/** Most demanding first: the first tier matching any changed file is suggested. */
 	reviewTiers: ReviewTier[];
@@ -67,6 +69,7 @@ export function loadConfig(repoRoot: string, file = CONFIG_FILE): Config {
 	const configPath = path.resolve(repoRoot, file);
 	const raw = fs.existsSync(configPath) ? (JSON.parse(fs.readFileSync(configPath, 'utf8')) as Partial<Config>) : {};
 	const config: Config = { ...DEFAULTS, packages: [{ root: '.', coverage: 'coverage/lcov.info' }], ...raw };
+	if (raw.exclude && raw.excludeDefaults !== false) config.exclude = [...DEFAULTS.exclude, ...raw.exclude];
 	if (!Array.isArray(config.packages) || config.packages.length === 0) {
 		throw new Error(`${file}: "packages" must list at least one package`);
 	}

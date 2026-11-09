@@ -8,6 +8,12 @@ describe('test commands', () => {
 		);
 	});
 
+	it('cannot be injected through file names: one pass, no $ patterns', () => {
+		expect(buildCommand('run {files} {tests}', ['src/{tests}.ts', 'src/$$.ts', 'a$&b.ts'], ['x;touch PWNED;.test.ts'])).toBe(
+			`run 'src/{tests}.ts' 'src/$$.ts' 'a$&b.ts' 'x;touch PWNED;.test.ts'`
+		);
+	});
+
 	it('makes repo paths relative to the package', () => {
 		expect(relativeToPackage('/repo', 'packages/api', ['packages/api/src/a.ts'])).toEqual(['src/a.ts']);
 	});

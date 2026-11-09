@@ -6,15 +6,15 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { checkChange, measureFile } from './analyze.js';
 import { baselinePath, readBaseline, writeBaseline, type Baseline } from './baseline.js';
 import { loadConfig, packageFor, type Config } from './config.js';
 import type { LineCoverage } from './coverage.js';
 import { collectCoverage } from './collect.js';
-import { changedFiles, fileAt, filesDifferingFrom, gitCommonDir, headSha, mergeBase, repoRoot } from './git.js';
+import { changedFiles, fileAt, filesDifferingFrom, gitCommonDir, headSha, mergeBase, repoRoot, trackedFiles as gitTrackedFiles } from './git.js';
 import { jsonReport, markdownReport, topReport } from './report.js';
 import { sourceFileFilter } from './tiers.js';
-import { execFileSync } from 'node:child_process';
 
 type Options = {
 	command: 'check' | 'baseline';
@@ -60,10 +60,7 @@ const readCurrent = (root: string) => (file: string) => {
 	return fs.existsSync(absolute) ? fs.readFileSync(absolute, 'utf8') : undefined;
 };
 
-const trackedFiles = (root: string) => () =>
-	execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
-		.split('\n')
-		.filter(Boolean);
+const trackedFiles = (root: string) => () => gitTrackedFiles(root);
 
 function trackedSourceFiles(root: string, config: Config): string[] {
 	const isSource = sourceFileFilter(config);
@@ -121,9 +118,6 @@ function runCheck(root: string, config: Config, options: Options): number {
 	const baseline = readBaseline(options.baselineFile ?? baselinePath(gitCommonDir(root), baseSha));
 	const result = checkChange({ repoRoot: root, config, changes, coverage, readCurrent: read, readBase: (file) => fileAt(root, baseSha, file), baseline });
 	result.warnings.unshift(...warnings);
-	if (!baseline && result.verdicts.some((verdict) => verdict.kind !== 'new')) {
-		result.warnings.push(`no baseline for ${baseSha.slice(0, 12)}: changed functions are compared by complexity only (run \`crap-check baseline\` on the base branch)`);
-	}
 	console.log(options.format === 'json' ? jsonReport(result) : markdownReport(result, config.threshold));
 	return result.failed ? 1 : 0;
 }
@@ -141,5 +135,5 @@ export function main(argv: string[]): number {
 	}
 }
 
-const invokedDirectly = process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(new URL(import.meta.url).pathname);
+const invokedDirectly = process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url));
 if (invokedDirectly) process.exitCode = main(process.argv.slice(2));

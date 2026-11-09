@@ -53,10 +53,23 @@ describe('checking a change', () => {
 		expect(result.verdicts[0]).toMatchObject({ kind: 'changed', status: 'warn' });
 	});
 
-	it('uses the baseline CRAP when there is one', () => {
+	it('shows the baseline CRAP but judges an old function by its complexity', () => {
 		const baseline = { sha: 'abc', createdAt: '', files: { 'src/billing/price.ts': [{ name: 'price', bodyHash: 'x', complexity: 6, crap: 10 }] } };
-		const result = checkChange(input({ baseline }));
-		expect(result.verdicts[0]).toMatchObject({ status: 'fail', reason: 'CRAP rose from 10.0 and is over 30' });
+		expect(checkChange(input({ baseline })).verdicts[0]).toMatchObject({ status: 'warn', base: { crap: 10 } });
+		const simpler = { sha: 'abc', createdAt: '', files: { 'src/billing/price.ts': [{ name: 'price', bodyHash: 'x', complexity: 5, crap: 5 }] } };
+		expect(checkChange(input({ baseline: simpler })).verdicts[0]).toMatchObject({ status: 'fail' });
+	});
+
+	it('suggests review for deleted files and for the old path of a renamed file', () => {
+		const deleted = checkChange(input({ changes: [{ file: 'src/billing/charge.ts', previousFile: 'src/billing/charge.ts', deleted: true, addedLines: new Set() }] }));
+		expect(deleted).toMatchObject({ verdicts: [], tier: { name: 'billing' } });
+		const renamed = checkChange(input({ changes: [{ file: 'lib/refund.ts', previousFile: 'src/billing/refund.ts', addedLines: new Set() }] }));
+		expect(renamed.tier?.name).toBe('billing');
+	});
+
+	it('does not score files outside every configured package', () => {
+		const result = checkChange(input({ config: { ...config, packages: [{ root: 'app', coverage: 'lcov.info' }] } }));
+		expect(result.verdicts).toEqual([]);
 	});
 
 	it('passes a text or markup change at once and suggests no review', () => {

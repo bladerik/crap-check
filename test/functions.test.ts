@@ -22,7 +22,7 @@ function f(a, b) {
 		const fns = byName(`
 const outer = (items) => items.map((item) => (item ? 1 : 2));`);
 		expect(fns.outer.complexity).toBe(1);
-		expect(fns['outer/<anonymous>'].complexity).toBe(2);
+		expect(fns['outer/items.map(callback)'].complexity).toBe(2);
 	});
 });
 
@@ -69,5 +69,28 @@ export default function () {}
 			name: 'C',
 			complexity: 2
 		});
+	});
+});
+
+describe('callbacks', () => {
+	it('names a function passed to a call after the call and numbers repeats', () => {
+		const names = findFunctions(
+			'a.ts',
+			`
+app.get('/a', (req) => req.ok ? 1 : 2);
+app.post('/b', function (req) { return 1; });
+function Component() {
+	useEffect(() => {}, []);
+	useEffect(() => { if (x) y(); }, [x]);
+}
+`
+		).map((fn) => fn.name);
+		expect(names).toEqual([
+			'app.get(callback)',
+			'app.post(callback)',
+			'Component',
+			'Component/useEffect(callback)',
+			'Component/useEffect(callback)#2'
+		]);
 	});
 });

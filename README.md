@@ -33,8 +33,8 @@ mostly old code, so it cannot stop anything. crap-check scores only the function
 modifies:
 
 - a **new** function must score at most the threshold (30);
-- a **changed** function may stay above it only if it did not get worse than on the base branch,
-  so a one-line fix in old code does not force a rewrite;
+- a **changed** function may stay above it only if it did not get more complex than on the base
+  branch, so a one-line fix in old code does not force a rewrite;
 - a change without functions (text, markup, images) passes at once.
 
 It also suggests how much review the change needs, from paths you configure (billing code: two
@@ -79,13 +79,18 @@ needs `@vitest/coverage-v8`, jest has coverage built in.
 | `packages[].root` | Package directory. Monorepos list one entry per package. |
 | `packages[].test` | Runs the tests for the change, with coverage. `{files}` becomes the changed files, `{tests}` the test files that mention them, both relative to `root`. |
 | `packages[].tests` | Globs of test files for `{tests}`. Default `**/*.{test,spec}.*`. |
+| `packages[].testsDepth` | `{tests}`: 1 = tests that mention a changed module; 2 (default) = also tests of modules that mention it. |
 | `packages[].testAll` | Runs the whole suite with coverage, for `baseline` and `--all`. |
 | `packages[].coverage` | The report the test command writes (`lcov.info` or `coverage-final.json`), relative to `root`. |
-| `include`, `exclude` | Globs of source files. Tests, `node_modules`, builds, `.d.ts` and generated folders are excluded by default. |
+| `include`, `exclude` | Globs of source files. `exclude` adds to the defaults (tests, `node_modules`, builds, `.d.ts`, generated folders, `*.config.*`); set `excludeDefaults: false` to replace them. |
 | `reviewTiers` | Most demanding first; the first tier with a path matching any changed file is suggested. |
 
+Only files inside a configured package are scored: a file without a test command could only
+count as untested.
+
 Use `{tests}` instead of the runner's own "related tests" when one module imports everything (a
-generated API, for example) and "related" would run the whole suite.
+generated API, for example) and "related" would run the whole suite. It finds test files by the
+changed module's file name, also one module away (`testsDepth`).
 
 Test commands with jest and ts-jest need source maps (`tsconfig: { sourceMap: true }` in the
 ts-jest options), or coverage points at the lines of the compiled output. crap-check warns when a
@@ -102,6 +107,7 @@ npx crap-check baseline   # store the CRAP of every function at HEAD (run on the
 | Option | |
 | --- | --- |
 | `--base <ref>` | Compare with another branch. |
+| `--ref <commit>` | Judge this commit instead of the working tree (what a pre-push hook needs). Tests still run on the working tree; crap-check warns when it differs. |
 | `--no-run` | Do not run tests; read the coverage reports already on disk. |
 | `--json` | JSON instead of the Markdown table. |
 | `--baseline <file>` | Use this baseline file instead of the cached one. |
@@ -114,45 +120,74 @@ Exit codes: `0` passed, `1` a function failed, `2` crap-check itself could not r
 Failing tests do not stop the check: it gates CRAP, not tests. They show up as a warning and their
 partial coverage counts.
 
-### Baseline
+### Changed functions and the baseline
 
-To know whether a changed function got worse, crap-check needs its CRAP on the base branch. Run
-`crap-check baseline` on a checkout of the base branch (locally, or in CI on every push to main).
-It is stored in the repository's git directory, shared by all worktrees, keyed by commit. Without
-one, changed functions over the threshold are compared by complexity only, and the report says so.
+A changed function over the threshold fails only when its complexity rose. Complexity, not CRAP:
+the check measures coverage with the tests related to the change, while a full run measures it with
+the whole suite, so the two CRAP values are not comparable.
+
+`crap-check baseline` stores the CRAP of every function at a commit (run it on a checkout of the
+base branch). It lives in the repository's git directory, shared by all worktrees, keyed by
+commit, and the report then shows `base → now` for changed functions. In CI, build it in the same
+job from a worktree of the base branch and pass it with `--baseline` (see below).
 
 ### Git hook
 
+The hook must judge what is pushed, not the working tree, so it passes each pushed commit as
+`--ref`:
+
 ```sh
-# .githooks/pre-push
 #!/bin/sh
-exec npx --no-install crap-check
+# .githooks/pre-push
+head=$(git rev-parse HEAD)
+status=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+	case "$local_sha" in *[!0]*) ;; *) continue ;; esac # branch deletion
+	if [ "$local_sha" != "$head" ]; then
+		echo "crap-check: $local_ref is not checked out; check it from its own checkout." >&2
+		continue
+	fi
+	npx --no-install crap-check --ref "$local_sha" || status=$?
+done
+exit $status
 ```
 
 ```sh
-git config core.hooksPath .githooks
+chmod +x .githooks/pre-push && git config core.hooksPath .githooks
 ```
 
 ### GitHub Actions
 
 ```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0
+- name: Baseline on the base branch
+  run: |
+    git worktree add ../base "origin/${{ github.base_ref }}"
+    cd ../base && npm ci && npx crap-check baseline --output "$RUNNER_TEMP/crap-baseline.json"
 - run: npm ci
-- run: npx crap-check --base origin/${{ github.base_ref }} >> "$GITHUB_STEP_SUMMARY"
+- name: Check the change
+  shell: bash -o pipefail {0}
+  run: npx crap-check --base "origin/${{ github.base_ref }}" --baseline "$RUNNER_TEMP/crap-baseline.json" | tee -a "$GITHUB_STEP_SUMMARY"
 ```
-
-Fetch the base branch first (`actions/checkout` with `fetch-depth: 0`).
 
 ## How it measures
 
 - **Functions:** declarations, expressions, arrows, methods, accessors and constructors, read with
   the TypeScript compiler from `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`. Names are qualified:
-  `outer/inner`, `Class.method`, `object.property`, `mutation.handler`.
+  `outer/inner`, `Class.method`, `object.property`, `mutation.handler`; a function passed to a call
+  is named after it (`app.get(callback)`), and repeated names get `#2`, `#3` in source order.
 - **Complexity:** 1 plus each `if`, `?:`, `case`, loop, `catch`, `&&`, `||` and `??`. Branches of a
   nested function count for that function.
-- **Coverage:** the instrumented lines inside the function that ran, without the lines of nested
-  functions. A function missing from the report is untested.
-- **Changed:** a function containing an added or modified line. A function is matched with base
-  by name, or by an identical body when it only moved or was renamed.
+- **Coverage:** the instrumented lines inside the function that ran, without the body of nested
+  functions (their first and last line also hold the outer code). A function missing from the
+  report is untested.
+- **Changed:** a function containing an added or modified line. It is matched with base by name in
+  the same file, or by an identical body whose original is gone (renamed, or moved to another
+  changed file). A copy of a function that still exists is new.
+- **Git:** diffs ignore the user's diff settings (external diff, textconv, prefixes, path quoting),
+  and file names with spaces, tabs or non-ASCII characters are read correctly.
 
 ## Credits
 

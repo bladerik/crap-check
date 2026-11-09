@@ -138,6 +138,81 @@ describe('crap-check', () => {
 		expect(output.join('\n')).toContain('No changed JavaScript or TypeScript functions.');
 	});
 
+	it('sees the change whatever the user git config says about diffs', () => {
+		write('src/price.ts', branchy);
+		commit('price');
+		git('config', 'diff.mnemonicPrefix', 'true');
+		git('config', 'diff.noprefix', 'true');
+		git('config', 'diff.external', 'false');
+		expect(run('--no-run')).toBe(1);
+	});
+
+	it('sees files with spaces and non-ASCII characters in their names', () => {
+		write('src/ünï.ts', branchy);
+		write('src/with space.ts', branchy.replace('price', 'price2'));
+		commit('odd names');
+		expect(run('--no-run')).toBe(1);
+		const text = output.join('\n');
+		expect(text).toContain('src/ünï.ts:1');
+		expect(text).toContain('src/with space.ts:1');
+	});
+
+	it('treats an untested function moved to another file as moved, not new', () => {
+		git('checkout', '-q', 'main');
+		write('src/legacy.ts', `${simple}\n${branchy}`);
+		commit('legacy');
+		git('checkout', '-qb', 'move');
+		write('src/legacy.ts', simple);
+		write('src/moved.ts', branchy);
+		commit('move price out');
+		expect(run('--no-run', '--base', 'main')).toBe(0);
+		expect(output.join('\n')).toContain('⚠ moved');
+	});
+
+	it('treats a copy of an untested function that still exists as new', () => {
+		git('checkout', '-q', 'main');
+		write('src/legacy.ts', branchy);
+		commit('legacy');
+		git('checkout', '-qb', 'copy');
+		write('src/legacy.ts', `${branchy}\n${branchy.replace('price', 'priceCopy')}`);
+		commit('copy');
+		expect(run('--no-run', '--base', 'main')).toBe(1);
+		expect(output.join('\n')).toContain('priceCopy | ✗ new');
+	});
+
+	it('does not read a coverage report when the package has no test command to refresh it', () => {
+		write('src/price.ts', branchy);
+		write('lcov.info', 'SF:src/price.ts\nDA:2,1\nDA:3,1\nDA:4,1\nend_of_record\n');
+		commit('price with a stale report');
+		expect(run()).toBe(1);
+		expect(output.join('\n')).toContain('has no "test" command: its functions count as untested');
+	});
+
+	it('adds a custom exclude to the default ones instead of replacing them', () => {
+		write('crap.config.json', JSON.stringify({ base: 'main', exclude: ['legacy/**'], packages: [{ root: '.', coverage: 'lcov.info' }] }));
+		write('src/price.test.ts', `it('x', () => { ${branchy} });\n`);
+		write('legacy/old.ts', branchy);
+		commit('test and legacy');
+		expect(run('--no-run')).toBe(0);
+	});
+
+	it('runs from an install path with spaces', () => {
+		const install = fs.mkdtempSync(path.join(os.tmpdir(), 'inst dir with space-'));
+		fs.cpSync(path.resolve(cwd, 'dist'), path.join(install, 'dist'), { recursive: true });
+		fs.symlinkSync(path.resolve(cwd, 'node_modules'), path.join(install, 'node_modules'));
+		fs.writeFileSync(path.join(install, 'package.json'), '{"type":"module"}');
+		const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'not-a-repo-'));
+		let status = 0;
+		try {
+			execFileSync('node', [path.join(install, 'dist/cli.js')], { cwd: outside, stdio: 'pipe' });
+		} catch (error) {
+			status = (error as { status: number }).status;
+		}
+		fs.rmSync(install, { recursive: true, force: true });
+		fs.rmSync(outside, { recursive: true, force: true });
+		expect(status).toBe(2); // "not a git repository", not a crash
+	});
+
 	it('exits 2 with a message when something is wrong', () => {
 		expect(run('--base', 'no-such-branch', '--no-run')).toBe(2);
 		expect(output.join('\n')).toMatch(/^crap-check: /);

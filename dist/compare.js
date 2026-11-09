@@ -1,3 +1,4 @@
+export const headKey = (file, name) => `${file}::${name}`;
 const touches = (fn, lines) => {
     for (const line of lines)
         if (line >= fn.startLine && line <= fn.endLine)
@@ -8,27 +9,23 @@ const touches = (fn, lines) => {
 export function touchedFunctions(functions, addedLines) {
     return functions.filter((fn) => touches(fn, addedLines));
 }
-/** Same name first; else an identical body elsewhere in the old file(s) means it only moved. */
+/**
+ * Same name in the same file: changed. Otherwise an identical body whose original is gone at head
+ * (renamed, or moved to another file): moved. A copy of a function that still exists is new.
+ */
 export function matchBase(fn, base) {
-    const byName = base.find((candidate) => candidate.name === fn.name);
+    const byName = base.sameFile.find((candidate) => candidate.name === fn.name);
     if (byName)
         return { kind: 'changed', base: byName };
-    const byBody = base.find((candidate) => candidate.bodyHash === fn.bodyHash);
-    if (byBody)
-        return { kind: 'moved', base: byBody };
-    return { kind: 'new' };
+    const moved = base.pool.find((candidate) => candidate.bodyHash === fn.bodyHash && !base.atHead.has(headKey(candidate.file, candidate.name)));
+    return moved ? { kind: 'moved', base: moved } : { kind: 'new' };
 }
 function judgeExisting(fn, base, threshold) {
     if (fn.crap <= threshold)
         return { status: 'ok' };
-    if (base.crap !== undefined) {
-        return fn.crap > base.crap + 0.05
-            ? { status: 'fail', reason: `CRAP rose from ${base.crap.toFixed(1)} and is over ${threshold}` }
-            : { status: 'warn', reason: `over ${threshold}, not worse than before` };
-    }
     return fn.complexity > base.complexity
         ? { status: 'fail', reason: `complexity rose from ${base.complexity} and CRAP is over ${threshold}` }
-        : { status: 'warn', reason: `over ${threshold}, complexity not higher (no baseline coverage)` };
+        : { status: 'warn', reason: `over ${threshold}, not more complex than before` };
 }
 export function judge(fn, base, threshold) {
     const match = matchBase(fn, base);

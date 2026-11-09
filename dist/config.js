@@ -25,6 +25,8 @@ export function loadConfig(repoRoot, file = CONFIG_FILE) {
     const configPath = path.resolve(repoRoot, file);
     const raw = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, 'utf8')) : {};
     const config = { ...DEFAULTS, packages: [{ root: '.', coverage: 'coverage/lcov.info' }], ...raw };
+    if (raw.exclude && raw.excludeDefaults !== false)
+        config.exclude = [...DEFAULTS.exclude, ...raw.exclude];
     if (!Array.isArray(config.packages) || config.packages.length === 0) {
         throw new Error(`${file}: "packages" must list at least one package`);
     }

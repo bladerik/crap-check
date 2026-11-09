@@ -7,9 +7,16 @@ export const DEFAULT_TEST_GLOBS = ['**/*.{test,spec}.{ts,tsx,mts,cts,js,jsx,mjs,
 
 const shellQuote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
 
-/** `{files}` and `{tests}` become the quoted paths; a command without them runs as written. */
+/**
+ * `{files}` and `{tests}` become the quoted paths, in one pass (a file named `{tests}.ts` stays a
+ * name) and without `$` patterns; a command without them runs as written.
+ */
 export function buildCommand(template: string, files: string[], tests: string[] = []): string {
-	return template.replace('{files}', files.map(shellQuote).join(' ')).replace('{tests}', tests.map(shellQuote).join(' '));
+	const values: Record<string, string> = {
+		'{files}': files.map(shellQuote).join(' '),
+		'{tests}': tests.map(shellQuote).join(' ')
+	};
+	return template.replace(/\{files\}|\{tests\}/g, (placeholder) => values[placeholder]);
 }
 
 export type RunResult = { ok: boolean; output: string };

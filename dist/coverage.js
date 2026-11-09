@@ -51,10 +51,11 @@ export function mergeCoverage(target, source) {
     }
     return target;
 }
-const inRanges = (line, ranges) => ranges.some(([start, end]) => line >= start && line <= end);
+/** Inside a nested function: its first and last line also hold the outer code around it. */
+const inNestedBody = (line, ranges) => ranges.some(([start, end]) => line > start && line < end);
 /**
- * Share of the function's own instrumented lines (nested functions excluded) that ran. A function
- * with no instrumented lines in the report is untested: 0.
+ * Share of the function's own instrumented lines (bodies of nested functions excluded) that ran.
+ * A function with no instrumented lines in the report is untested: 0.
  */
 export function functionCoverage(fn, lines) {
     if (!lines)
@@ -62,7 +63,7 @@ export function functionCoverage(fn, lines) {
     let total = 0;
     let covered = 0;
     for (const [line, hits] of lines) {
-        if (line < fn.startLine || line > fn.endLine || inRanges(line, fn.nestedRanges))
+        if (line < fn.startLine || line > fn.endLine || inNestedBody(line, fn.nestedRanges))
             continue;
         total++;
         if (hits > 0)

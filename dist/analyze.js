@@ -3,7 +3,7 @@
  * processes here: the caller passes everything in, so this is easy to test.
  */
 import path from 'node:path';
-import { judge, touchedFunctions } from './compare.js';
+import { headKey, judge, touchedFunctions } from './compare.js';
 import { packageFor } from './config.js';
 import { functionCoverage, looksSourceMapped } from './coverage.js';
 import { crapScore, round1 } from './crap.js';
@@ -27,27 +27,42 @@ export function baseFunctionsFor(input, baseFile) {
         return [];
     return findFunctions(baseFile, text).map(({ name, bodyHash, complexity }) => ({ name, bodyHash, complexity }));
 }
-function checkFile(input, change, warnings) {
-    const text = input.readCurrent(change.file);
+/** Measures a changed file at head, warning when its coverage is not mapped onto the source. */
+function measureChange(input, change, warnings) {
+    const text = change.deleted ? undefined : input.readCurrent(change.file);
     if (text === undefined)
-        return [];
+        return undefined;
     const lines = input.coverage.get(path.resolve(input.repoRoot, change.file));
     if (!looksSourceMapped(text, lines)) {
         warnings.push(`${change.file}: coverage lines do not match the source (no source maps?); coverage may be wrong`);
     }
-    const measured = measureFile(input.repoRoot, change.file, text, input.coverage);
-    const base = baseFunctionsFor(input, change.previousFile ?? change.file);
-    return touchedFunctions(measured, change.addedLines).map((fn) => judge(fn, base, input.config.threshold));
+    return { change, measured: measureFile(input.repoRoot, change.file, text, input.coverage) };
+}
+/** Base functions of every changed, renamed and deleted file, and the functions that exist at head. */
+function baseContext(input, scored, measured) {
+    const pool = scored.flatMap((change) => {
+        const baseFile = change.previousFile ?? change.file;
+        return baseFunctionsFor(input, baseFile).map((fn) => ({ ...fn, file: baseFile }));
+    });
+    const atHead = new Set(measured.flatMap(({ change, measured: fns }) => fns.map((fn) => headKey(change.file, fn.name))));
+    return { pool, atHead };
 }
 const severity = { fail: 0, warn: 1, ok: 2 };
+/** Every path the change touches, old paths of renames and deletions included. */
+const touchedPaths = (changes) => [...new Set(changes.flatMap((change) => [change.file, change.previousFile].filter((file) => Boolean(file))))];
 export function checkChange(input) {
     const isSource = sourceFileFilter(input.config);
     const warnings = [];
-    const verdicts = input.changes
-        .filter((change) => isSource(change.file) && packageFor(input.config, change.file))
-        .flatMap((change) => checkFile(input, change, warnings))
+    const scored = input.changes.filter((change) => isSource(change.file) && packageFor(input.config, change.file));
+    const measured = scored.flatMap((change) => measureChange(input, change, warnings) ?? []);
+    const { pool, atHead } = baseContext(input, scored, measured);
+    const verdicts = measured
+        .flatMap(({ change, measured: fns }) => {
+        const sameFile = pool.filter((fn) => fn.file === (change.previousFile ?? change.file));
+        return touchedFunctions(fns, change.addedLines).map((fn) => judge(fn, { sameFile, pool, atHead }, input.config.threshold));
+    })
         .sort((a, b) => severity[a.status] - severity[b.status] || b.crap - a.crap);
-    const changedFiles = input.changes.map((change) => change.file);
+    const changedFiles = touchedPaths(input.changes);
     return {
         verdicts,
         warnings,

@@ -4,9 +4,16 @@ import path from 'node:path';
 import picomatch from 'picomatch';
 export const DEFAULT_TEST_GLOBS = ['**/*.{test,spec}.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'];
 const shellQuote = (value) => `'${value.replace(/'/g, `'\\''`)}'`;
-/** `{files}` and `{tests}` become the quoted paths; a command without them runs as written. */
+/**
+ * `{files}` and `{tests}` become the quoted paths, in one pass (a file named `{tests}.ts` stays a
+ * name) and without `$` patterns; a command without them runs as written.
+ */
 export function buildCommand(template, files, tests = []) {
-    return template.replace('{files}', files.map(shellQuote).join(' ')).replace('{tests}', tests.map(shellQuote).join(' '));
+    const values = {
+        '{files}': files.map(shellQuote).join(' '),
+        '{tests}': tests.map(shellQuote).join(' ')
+    };
+    return template.replace(/\{files\}|\{tests\}/g, (placeholder) => values[placeholder]);
 }
 export function runTests(command, cwd) {
     const result = spawnSync(command, { cwd, shell: true, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });

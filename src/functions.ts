@@ -50,6 +50,14 @@ export function cyclomaticComplexity(fn: ts.Node): number {
 	return count;
 }
 
+/** `app.get(callback)` for a function passed to a call; long callees are shortened. */
+function callbackName(node: ts.Node): string | undefined {
+	const call = node.parent;
+	if (!ts.isCallExpression(call) || !call.arguments.some((argument) => argument === node)) return undefined;
+	const callee = call.expression.getText().replace(/\s+/g, '');
+	return `${callee.length > 40 ? `${callee.slice(0, 39)}…` : callee}(callback)`;
+}
+
 function ownName(node: ts.Node): string | undefined {
 	const named = node as { name?: ts.Node };
 	if (named.name && (ts.isIdentifier(named.name) || ts.isPrivateIdentifier(named.name) || ts.isStringLiteral(named.name))) {
@@ -64,7 +72,7 @@ function ownName(node: ts.Node): string | undefined {
 	if (ts.isExportAssignment(parent)) return 'default';
 	const modifiers = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
 	if (modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword)) return 'default';
-	return undefined;
+	return callbackName(node);
 }
 
 /**
@@ -144,7 +152,17 @@ export function findFunctions(fileName: string, text: string): FunctionInfo[] {
 			.filter((inner) => inner !== outer && isDirectlyNested(inner.node, outer.node))
 			.map((inner) => [inner.startLine, inner.endLine] as [number, number]);
 	}
-	return found.map(({ node: _node, ...info }) => info);
+	return numberRepeatedNames(found.map(({ node: _node, ...info }) => info));
+}
+
+/** Second and later functions with the same name get `#2`, `#3`, ... in source order. */
+function numberRepeatedNames(functions: FunctionInfo[]): FunctionInfo[] {
+	const seen = new Map<string, number>();
+	return functions.map((fn) => {
+		const count = (seen.get(fn.name) ?? 0) + 1;
+		seen.set(fn.name, count);
+		return count === 1 ? fn : { ...fn, name: `${fn.name}#${count}` };
+	});
 }
 
 function isDirectlyNested(inner: ts.Node, outer: ts.Node): boolean {

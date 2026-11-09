@@ -36,6 +36,14 @@ export function cyclomaticComplexity(fn) {
     ts.forEachChild(fn, visit);
     return count;
 }
+/** `app.get(callback)` for a function passed to a call; long callees are shortened. */
+function callbackName(node) {
+    const call = node.parent;
+    if (!ts.isCallExpression(call) || !call.arguments.some((argument) => argument === node))
+        return undefined;
+    const callee = call.expression.getText().replace(/\s+/g, '');
+    return `${callee.length > 40 ? `${callee.slice(0, 39)}…` : callee}(callback)`;
+}
 function ownName(node) {
     const named = node;
     if (named.name && (ts.isIdentifier(named.name) || ts.isPrivateIdentifier(named.name) || ts.isStringLiteral(named.name))) {
@@ -54,7 +62,7 @@ function ownName(node) {
     const modifiers = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
     if (modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword))
         return 'default';
-    return undefined;
+    return callbackName(node);
 }
 /**
  * The name an object literal is bound to: `const api = { ... }`, or through a wrapper call such as
@@ -132,7 +140,16 @@ export function findFunctions(fileName, text) {
             .filter((inner) => inner !== outer && isDirectlyNested(inner.node, outer.node))
             .map((inner) => [inner.startLine, inner.endLine]);
     }
-    return found.map(({ node: _node, ...info }) => info);
+    return numberRepeatedNames(found.map(({ node: _node, ...info }) => info));
+}
+/** Second and later functions with the same name get `#2`, `#3`, ... in source order. */
+function numberRepeatedNames(functions) {
+    const seen = new Map();
+    return functions.map((fn) => {
+        const count = (seen.get(fn.name) ?? 0) + 1;
+        seen.set(fn.name, count);
+        return count === 1 ? fn : { ...fn, name: `${fn.name}#${count}` };
+    });
 }
 function isDirectlyNested(inner, outer) {
     for (let parent = inner.parent; parent; parent = parent.parent) {
