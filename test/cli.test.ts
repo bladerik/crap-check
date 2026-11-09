@@ -386,6 +386,43 @@ describe('running tests only where coverage could change a verdict', () => {
 		expect(output.join('\n')).not.toContain('no coverage report');
 	});
 
+	describe('each file keeps the coverage of the run that decided it', () => {
+		const packages = (a: object, b: object) =>
+			write('crap.config.json', JSON.stringify({ base: 'main', packages: [{ root: 'a', coverage: 'lcov.info', ...a }, { root: 'b', coverage: 'lcov.info', ...b }] }));
+		const covers = (file: string, lines: string) => `printf 'SF:${file}\\n${lines}end_of_record\\n' > lcov.info`;
+
+		it("does not settle a file through another package's first run while its own wrote no report", () => {
+			const otherToo = "; printf 'SF:other.ts\\nDA:2,1\\nDA:3,1\\nDA:4,1\\nend_of_record\\n' >> lcov.info";
+			packages({ testFirst: covers('../b/price.ts', full) + otherToo }, { testFirst: 'true', test: 'true' });
+			write('a/other.ts', branchy.replace('price', 'other'));
+			write('b/price.ts', branchy);
+			commit('two packages');
+			expect(run()).toBe(2);
+			expect(output.join('\n')).toContain('? new: not measured (no coverage report)');
+		});
+
+		it('judges a file sent on to the full run by that run alone, untested when its report lacks the file', () => {
+			const otherToo = "; printf 'SF:other.ts\\nDA:2,1\\nDA:3,1\\nDA:4,1\\nend_of_record\\n' >> lcov.info";
+			packages({ testFirst: covers('../b/price.ts', full) + otherToo }, { test: covers('elsewhere.ts', 'DA:1,1\\n') });
+			write('a/other.ts', branchy.replace('price', 'other'));
+			write('b/price.ts', branchy);
+			commit('two packages');
+			expect(run()).toBe(1);
+			expect(output.join('\n')).toContain('| 42.0 | 6 | 0% | `b/price.ts:1` price | ✗ new: new function over 30 |');
+		});
+
+		it('keeps the coverage that settled a file when the full run, for another file, reports it lower', () => {
+			const both = (a: string, b: string) => `printf 'SF:src/price.ts\\n${a}end_of_record\\nSF:src/other.ts\\n${b}end_of_record\\n' > lcov.info`;
+			config({ testFirst: both(full, ''), test: both('DA:2,0\\nDA:3,0\\nDA:4,0\\n', full) });
+			write('src/price.ts', branchy);
+			write('src/other.ts', branchy.replace('price', 'other'));
+			commit('two files');
+			expect(run()).toBe(0);
+			expect(output.join('\n')).toContain('| 6.0 | 6 | 100% | `src/price.ts:1` price | ✓ new |');
+			expect(output.join('\n')).toContain('| 6.0 | 6 | 100% | `src/other.ts:1` other | ✓ new |');
+		});
+	});
+
 	it('--no-run still measures every touched function from the reports on disk', () => {
 		write('src/price.ts', branchy.replace('return 1;', 'return 10;'));
 		write('src/add.ts', 'export function add(a, b) {\n\treturn a + b + 1;\n}\n');

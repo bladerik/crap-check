@@ -20,8 +20,11 @@ export type CollectOptions = {
 	trackedFiles: () => string[];
 };
 
-/** `unmeasured`: package roots whose tests should have written a report but did not. */
-type Collected = { coverage: LineCoverage; warnings: string[]; unmeasured: string[] };
+/**
+ * `unmeasured`: package roots whose tests should have written a report but did not. `reported`:
+ * package roots whose tests wrote one.
+ */
+type Collected = { coverage: LineCoverage; warnings: string[]; unmeasured: string[]; reported: string[] };
 
 /** ran: tests ran (or `--no-run`), a report is expected. untested: no test reaches the change. */
 type RunOutcome = 'ran' | 'untested' | 'no command';
@@ -67,6 +70,7 @@ export function collectCoverage(options: CollectOptions): Collected {
 	const coverage: LineCoverage = new Map();
 	const warnings: string[] = [];
 	const unmeasured: string[] = [];
+	const reported: string[] = [];
 	const packages =
 		options.mode === 'testAll' ? options.config.packages : [...new Set(options.files.map((file) => packageFor(options.config, file)))];
 	for (const pkg of packages) {
@@ -75,7 +79,10 @@ export function collectCoverage(options: CollectOptions): Collected {
 		const report = path.resolve(packageRoot, pkg.coverage);
 		const outcome = runPackage(options, pkg, report, warnings);
 		if (outcome !== 'ran') continue;
-		if (fs.existsSync(report)) mergeCoverage(coverage, readCoverage(report, packageRoot));
+		if (fs.existsSync(report)) {
+			mergeCoverage(coverage, readCoverage(report, packageRoot));
+			reported.push(pkg.root);
+		}
 		// A first run without a report only sends its files on to the full run.
 		else if (options.mode !== 'testFirst') {
 			unmeasured.push(pkg.root);
@@ -85,5 +92,5 @@ export function collectCoverage(options: CollectOptions): Collected {
 			);
 		}
 	}
-	return { coverage, warnings, unmeasured };
+	return { coverage, warnings, unmeasured, reported };
 }

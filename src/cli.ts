@@ -167,9 +167,20 @@ const filesOf = (verdicts: Verdict[]) => [...new Set(verdicts.map((verdict) => v
 const pendingFiles = (result: CheckResult, threshold: number) =>
 	filesOf(result.verdicts.filter((verdict) => needsCoverage(verdict, threshold)));
 
+/** The coverage of these repo-relative files only, as one run measured them; absent files stay absent. */
+function coverageOfFiles(root: string, from: LineCoverage, files: Iterable<string>, into: LineCoverage): void {
+	for (const file of files) {
+		const lines = from.get(path.resolve(root, file));
+		if (lines) into.set(path.resolve(root, file), lines);
+	}
+}
+
 /**
  * Runs tests only where coverage could change a verdict: first the package's `testFirst` (a narrow,
- * quick run) where it has one, then `test` for the files where something still fails.
+ * quick run) where it has one, then `test` for the files where something still fails. Each file is
+ * judged by the coverage of the run that decided it: a file the first run settled keeps that run's
+ * coverage, and only when its own package wrote a report (another package's tests reaching it do
+ * not settle it); a file sent on gets the full run's coverage or, missing from it, none.
  */
 function measureLazily(root: string, config: Config, input: Omit<CheckInput, 'coverage'>, pending: string[]): Measurement {
 	const full = new Set<string>();
@@ -178,14 +189,17 @@ function measureLazily(root: string, config: Config, input: Omit<CheckInput, 'co
 	const collect = (files: string[], mode: 'test' | 'testFirst') =>
 		collectCoverage({ root, config, files, mode, run: true, trackedFiles: trackedFiles(root) });
 	const first = pending.filter((file) => packageFor(config, file)?.testFirst);
-	const narrow = first.length ? collect(first, 'testFirst') : { coverage: new Map() as LineCoverage, warnings: [] as string[] };
+	const narrow = first.length ? collect(first, 'testFirst') : { coverage: new Map() as LineCoverage, warnings: [] as string[], reported: [] as string[] };
 	const failing = new Set(pendingFiles(checkChange({ ...input, coverage: narrow.coverage }), config.threshold));
-	for (const file of first) if (!failing.has(file)) partial.add(file);
+	const reported = new Set(narrow.reported);
+	for (const file of first) if (!failing.has(file) && reported.has(packageFor(config, file)!.root)) partial.add(file);
+	const coverage: LineCoverage = new Map();
+	coverageOfFiles(root, narrow.coverage, partial, coverage);
 	const rest = pending.filter((file) => !partial.has(file));
-	if (rest.length === 0) return { coverage: narrow.coverage, warnings: narrow.warnings, coverageOf };
+	if (rest.length === 0) return { coverage, warnings: narrow.warnings, coverageOf };
 	const wide = collect(rest, 'test');
 	for (const file of rest) full.add(file);
-	const coverage = new Map([...narrow.coverage, ...wide.coverage]);
+	coverageOfFiles(root, wide.coverage, rest, coverage);
 	return { coverage, warnings: [...narrow.warnings, ...wide.warnings], unmeasured: wide.unmeasured, coverageOf };
 }
 

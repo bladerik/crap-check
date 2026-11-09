@@ -124,8 +124,12 @@ const severity = { fail: 0, unmeasured: 1, warn: 2, ok: 3 } as const;
 /** A function in a package without a coverage report: 0% would be a guess, so no verdict. */
 function unmeasuredIn(input: CheckInput): (verdict: Verdict) => Verdict {
 	const roots = new Set(input.unmeasured ?? []);
+	// A verdict decided without tests needs no report.
+	const tested = (file: string) => (input.coverageOf?.(file) ?? 'full') !== 'none';
 	return (verdict) =>
-		roots.has(packageFor(input.config, verdict.file)?.root ?? '') ? { ...verdict, status: 'unmeasured', reason: 'no coverage report' } : verdict;
+		roots.has(packageFor(input.config, verdict.file)?.root ?? '') && tested(verdict.file)
+			? { ...verdict, status: 'unmeasured', reason: 'no coverage report' }
+			: verdict;
 }
 
 /**

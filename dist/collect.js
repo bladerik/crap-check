@@ -49,6 +49,7 @@ export function collectCoverage(options) {
     const coverage = new Map();
     const warnings = [];
     const unmeasured = [];
+    const reported = [];
     const packages = options.mode === 'testAll' ? options.config.packages : [...new Set(options.files.map((file) => packageFor(options.config, file)))];
     for (const pkg of packages) {
         if (!pkg)
@@ -58,8 +59,10 @@ export function collectCoverage(options) {
         const outcome = runPackage(options, pkg, report, warnings);
         if (outcome !== 'ran')
             continue;
-        if (fs.existsSync(report))
+        if (fs.existsSync(report)) {
             mergeCoverage(coverage, readCoverage(report, packageRoot));
+            reported.push(pkg.root);
+        }
         // A first run without a report only sends its files on to the full run.
         else if (options.mode !== 'testFirst') {
             unmeasured.push(pkg.root);
@@ -67,5 +70,5 @@ export function collectCoverage(options) {
                 '(missing dependencies or coverage provider?). Functions there are not measured.');
         }
     }
-    return { coverage, warnings, unmeasured };
+    return { coverage, warnings, unmeasured, reported };
 }
