@@ -1,0 +1,15 @@
+{
+	"threshold": 30,
+	"base": "origin/main",
+	"packages": [
+		{
+			"root": ".",
+			"test": "npx vitest related --run --coverage.enabled --coverage.reporter=lcov {files}",
+			"testAll": "npx vitest run --coverage.enabled --coverage.reporter=lcov",
+			"coverage": "coverage/lcov.info"
+		}
+	],
+	"reviewTiers": [
+		{ "name": "analysis", "paths": ["src/**"], "reviewers": 1, "effort": "high" }
+	]
+}
