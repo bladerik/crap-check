@@ -7,7 +7,7 @@ import { judge, touchedFunctions } from './compare.js';
 import { functionCoverage, looksSourceMapped } from './coverage.js';
 import { crapScore, round1 } from './crap.js';
 import { findFunctions } from './functions.js';
-import { sourceFileFilter, suggestTier } from './tiers.js';
+import { reviewableFileFilter, sourceFileFilter, suggestTier } from './tiers.js';
 /** Every function of one file with its coverage and CRAP. */
 export function measureFile(repoRoot, file, text, coverage) {
     const lines = coverage.get(path.resolve(repoRoot, file));
@@ -51,7 +51,7 @@ export function checkChange(input) {
         verdicts,
         warnings,
         changedFiles,
-        tier: suggestTier(changedFiles, input.config.reviewTiers),
+        tier: suggestTier(changedFiles.filter(reviewableFileFilter(input.config)), input.config.reviewTiers),
         failed: verdicts.some((verdict) => verdict.status === 'fail')
     };
 }

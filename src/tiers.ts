@@ -11,6 +11,12 @@ export function sourceFileFilter(config: Pick<Config, 'include' | 'exclude'>): (
 	return (file) => included(file) && !excluded(file);
 }
 
+/** Files that count for the review suggestion: everything but the excluded (tests, config, generated). */
+export function reviewableFileFilter(config: Pick<Config, 'exclude'>): (file: string) => boolean {
+	const excluded = matcher(config.exclude);
+	return (file) => !excluded(file);
+}
+
 /** The first (most demanding) tier with a glob matching any changed file. */
 export function suggestTier(changedFiles: string[], tiers: ReviewTier[]): ReviewTier | undefined {
 	return tiers.find((tier) => {

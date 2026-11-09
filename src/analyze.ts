@@ -10,7 +10,7 @@ import { functionCoverage, looksSourceMapped, type LineCoverage } from './covera
 import { crapScore, round1 } from './crap.js';
 import { findFunctions } from './functions.js';
 import type { FileChange } from './git.js';
-import { sourceFileFilter, suggestTier } from './tiers.js';
+import { reviewableFileFilter, sourceFileFilter, suggestTier } from './tiers.js';
 
 export type CheckInput = {
 	repoRoot: string;
@@ -76,7 +76,7 @@ export function checkChange(input: CheckInput): CheckResult {
 		verdicts,
 		warnings,
 		changedFiles,
-		tier: suggestTier(changedFiles, input.config.reviewTiers),
+		tier: suggestTier(changedFiles.filter(reviewableFileFilter(input.config)), input.config.reviewTiers),
 		failed: verdicts.some((verdict) => verdict.status === 'fail')
 	};
 }

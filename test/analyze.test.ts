@@ -72,10 +72,17 @@ describe('checking a change', () => {
 		expect(result.tier).toBeUndefined();
 	});
 
-	it('does not score test files, though they still count for the review suggestion', () => {
-		const result = checkChange(input({ changes: [{ file: 'src/price.test.ts', addedLines: new Set([1]) }] }));
+	it('neither scores nor suggests review for changes to tests or config only', () => {
+		const result = checkChange(
+			input({
+				changes: [
+					{ file: 'src/price.test.ts', addedLines: new Set([1]) },
+					{ file: 'src/vite.config.ts', addedLines: new Set([1]) }
+				]
+			})
+		);
 		expect(result).toMatchObject({ failed: false, verdicts: [] });
-		expect(result.tier?.name).toBe('code');
+		expect(result.tier).toBeUndefined();
 	});
 
 	it('warns when coverage does not line up with the source', () => {
