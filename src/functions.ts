@@ -38,7 +38,10 @@ const DECISION_KINDS = new Set([
 const LOGICAL_OPERATORS = new Set([
 	ts.SyntaxKind.AmpersandAmpersandToken,
 	ts.SyntaxKind.BarBarToken,
-	ts.SyntaxKind.QuestionQuestionToken
+	ts.SyntaxKind.QuestionQuestionToken,
+	ts.SyntaxKind.AmpersandAmpersandEqualsToken,
+	ts.SyntaxKind.BarBarEqualsToken,
+	ts.SyntaxKind.QuestionQuestionEqualsToken
 ]);
 
 const isFunction = (node: ts.Node): node is ts.FunctionLikeDeclaration =>
@@ -57,8 +60,12 @@ export function cyclomaticComplexity(fn: ts.Node): number {
 	return count;
 }
 
-const shorten = (text: string, max: number) => {
-	const flat = text.replace(/\s+/g, ' ').trim();
+const printer = ts.createPrinter({ removeComments: true });
+
+/** Code of a node for a name: without comments, on one line, at most `max` characters. */
+const shorten = (node: ts.Node, max: number) => {
+	const code = printer.printNode(ts.EmitHint.Unspecified, node, node.getSourceFile());
+	const flat = code.replace(/\s+/g, ' ').replace(/ ?([.(]) /g, '$1').replace(/ \./g, '.').trim();
 	return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 };
 
@@ -70,9 +77,25 @@ function callbackName(node: ts.Node): string | undefined {
 	const call = node.parent;
 	if (!ts.isCallExpression(call) || !call.arguments.some((argument) => argument === node)) return undefined;
 	const args = call.arguments.map((argument) =>
-		argument === node ? '<callback>' : isFunction(argument) ? '<fn>' : shorten(argument.getText(), 32)
+		argument === node ? '<callback>' : isFunction(argument) ? '<fn>' : shorten(argument, 32)
 	);
-	return `${shorten(call.expression.getText(), 40)}(${args.join(', ')})`;
+	return `${shorten(call.expression, 40)}(${args.join(', ')})`;
+}
+
+const ASSIGNMENTS = new Set([
+	ts.SyntaxKind.EqualsToken,
+	ts.SyntaxKind.AmpersandAmpersandEqualsToken,
+	ts.SyntaxKind.BarBarEqualsToken,
+	ts.SyntaxKind.QuestionQuestionEqualsToken
+]);
+
+/** A function assigned to something is named after it: `script.onerror = () => …`. */
+function assignedName(node: ts.Node): string | undefined {
+	const assignment = node.parent;
+	if (!ts.isBinaryExpression(assignment) || assignment.right !== node || !ASSIGNMENTS.has(assignment.operatorToken.kind)) {
+		return undefined;
+	}
+	return shorten(assignment.left, 40);
 }
 
 function ownName(node: ts.Node): string | undefined {
@@ -89,7 +112,7 @@ function ownName(node: ts.Node): string | undefined {
 	if (ts.isExportAssignment(parent)) return 'default';
 	const modifiers = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
 	if (modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword)) return 'default';
-	return callbackName(node);
+	return callbackName(node) ?? assignedName(node);
 }
 
 /**

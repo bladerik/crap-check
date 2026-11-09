@@ -102,8 +102,12 @@ describe('source map check', () => {
 		expect(looksSourceMapped(source, new Map([[1, 1], [2, 1]]))).toBe(true);
 	});
 
-	it('flags coverage on blank lines, comments or past the end (transpiled line numbers)', () => {
-		expect(looksSourceMapped(source, new Map([[4, 1], [5, 1], [40, 1]]))).toBe(false);
+	it('flags coverage on blank lines or past the end (transpiled line numbers)', () => {
+		expect(looksSourceMapped(source, new Map([[4, 1], [40, 1]]))).toBe(false);
+	});
+
+	it('accepts reports that list comment lines (node:test)', () => {
+		expect(looksSourceMapped(source, new Map([[1, 1], [2, 1], [5, 1]]))).toBe(true);
 	});
 });
 

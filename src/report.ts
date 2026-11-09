@@ -11,6 +11,7 @@ function crapCell(verdict: Verdict): string {
 
 function resultCell(verdict: Verdict): string {
 	if (verdict.status === 'warn') return `⚠ ${verdict.kind}: let through`;
+	if (verdict.status === 'unmeasured') return `? ${verdict.kind}: not measured (no coverage report)`;
 	const icon = verdict.status === 'ok' ? '✓' : '✗';
 	return verdict.reason ? `${icon} ${verdict.kind}: ${verdict.reason}` : `${icon} ${verdict.kind}`;
 }
@@ -30,7 +31,9 @@ const escapeCell = (text: string) => text.replace(/\|/g, '\\|');
 
 function row(verdict: Verdict): string {
 	const where = `\`${escapeCell(`${verdict.file}:${verdict.startLine}`)}\` ${escapeCell(verdict.name)}`;
-	return `| ${crapCell(verdict)} | ${verdict.complexity} | ${percent(verdict.coverage)} | ${where} | ${resultCell(verdict)} |`;
+	const measured = verdict.status !== 'unmeasured';
+	const crap = measured ? crapCell(verdict) : '–';
+	return `| ${crap} | ${verdict.complexity} | ${measured ? percent(verdict.coverage) : '–'} | ${where} | ${resultCell(verdict)} |`;
 }
 
 function tierLine(result: CheckResult): string {
@@ -49,7 +52,10 @@ export function markdownReport(result: CheckResult, threshold: number): string {
 		lines.push(...result.verdicts.map(row));
 		const failed = result.verdicts.filter((verdict) => verdict.status === 'fail').length;
 		const warned = result.verdicts.filter((verdict) => verdict.status === 'warn').length;
-		lines.push('', `${result.verdicts.length} function(s) checked against CRAP ${threshold}: ${failed} failed, ${warned} let through.`);
+		const unmeasured = result.verdicts.filter((verdict) => verdict.status === 'unmeasured').length;
+		const notMeasured = unmeasured ? `, ${unmeasured} not measured` : '';
+		lines.push('', `${result.verdicts.length} function(s) checked against CRAP ${threshold}: ${failed} failed, ${warned} let through${notMeasured}.`);
+		if (unmeasured) lines.push('', 'Not measured: fix the test setup (see the warning below) and run again; the check exits 2 until then.');
 		lines.push(...letThroughLines(result.verdicts, threshold));
 	}
 	lines.push('', tierLine(result));

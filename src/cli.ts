@@ -131,20 +131,20 @@ export function coverageOutput(config: Config): (file: string) => boolean {
 function runCheck(root: string, config: Config, options: Options): number {
 	const baseSha = mergeBase(root, options.base ?? config.base, options.ref);
 	const changes = changedFiles(root, baseSha, options.ref);
-	const isSource = sourceFileFilter(config);
 	const read = options.ref ? (file: string) => fileAt(root, options.ref!, file) : readCurrent(root);
-	const sources = changes.map((change) => change.file).filter((file) => isSource(file) && read(file) !== undefined);
-	assertCommitted(root, config, options, sources);
-	const collected = sources.length
-		? collectCoverage({ root, config, files: sources, mode: 'test', run: options.run, trackedFiles: trackedFiles(root) })
-		: { coverage: new Map() as LineCoverage, warnings: [] as string[] };
-	const { coverage } = collected;
-	const warnings = collected.warnings;
 	const baseline = readBaseline(options.baselineFile ?? baselinePath(gitCommonDir(root), baseSha));
-	const result = checkChange({ repoRoot: root, config, changes, coverage, readCurrent: read, readBase: (file) => fileAt(root, baseSha, file), baseline });
-	result.warnings.unshift(...warnings);
+	const input = { repoRoot: root, config, changes, readCurrent: read, readBase: (file: string) => fileAt(root, baseSha, file), baseline };
+	// Tests run only for files whose functions the change touches: a copy edit costs nothing.
+	const touched = [...new Set(checkChange({ ...input, coverage: new Map() }).verdicts.map((verdict) => verdict.file))];
+	assertCommitted(root, config, options, touched);
+	const collected = touched.length
+		? collectCoverage({ root, config, files: touched, mode: 'test', run: options.run, trackedFiles: trackedFiles(root) })
+		: { coverage: new Map() as LineCoverage, warnings: [] as string[], unmeasured: [] as string[] };
+	const result = checkChange({ ...input, coverage: collected.coverage, unmeasured: collected.unmeasured });
+	result.warnings.unshift(...collected.warnings);
 	console.log(options.format === 'json' ? jsonReport(result) : markdownReport(result, config.threshold));
-	return result.failed ? 1 : 0;
+	if (result.failed) return 1;
+	return result.incomplete ? 2 : 0;
 }
 
 export function main(argv: string[]): number {

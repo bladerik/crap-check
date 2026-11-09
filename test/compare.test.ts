@@ -125,6 +125,12 @@ describe('verdicts', () => {
 		const verdict = judge(fn({ complexity: 9, crap: 90 }), { kind: 'changed', base: { name: 'f', bodyHash: 'x', complexity: 8 } }, 30);
 		expect(verdict).toMatchObject({ status: 'fail', reason: 'complexity rose from 8 and CRAP is over 30' });
 	});
+
+	it('says when a function is too complex for any test to pass it', () => {
+		const verdict = judge(fn({ complexity: 61, crap: 61, coverage: 1 }), { kind: 'changed', base: { name: 'f', bodyHash: 'x', complexity: 57 } }, 30);
+		expect(verdict.status).toBe('fail');
+		expect(verdict.reason).toMatch(/above 30 no test can pass it: split it/);
+	});
 });
 
 describe('diff parsing', () => {

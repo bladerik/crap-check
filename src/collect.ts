@@ -20,7 +20,11 @@ export type CollectOptions = {
 	trackedFiles: () => string[];
 };
 
-type Collected = { coverage: LineCoverage; warnings: string[] };
+/** `unmeasured`: package roots whose tests should have written a report but did not. */
+type Collected = { coverage: LineCoverage; warnings: string[]; unmeasured: string[] };
+
+/** ran: tests ran (or `--no-run`), a report is expected. untested: no test reaches the change. */
+type RunOutcome = 'ran' | 'untested' | 'no command';
 
 function testsFor(options: CollectOptions, pkg: PackageConfig, own: string[]): string[] {
 	const repoFiles = options.trackedFiles().filter((file) => packageFor(options.config, file) === pkg);
@@ -39,38 +43,46 @@ function testsFor(options: CollectOptions, pkg: PackageConfig, own: string[]): s
 	});
 }
 
-/** Runs the package's tests; false when there is nothing fresh to read (no command for this mode). */
-function runPackage(options: CollectOptions, pkg: PackageConfig, report: string, warnings: string[]): boolean {
+/** Runs the package's tests, so that a fresh report can be read. */
+function runPackage(options: CollectOptions, pkg: PackageConfig, report: string, warnings: string[]): RunOutcome {
 	const command = pkg[options.mode];
-	if (!options.run) return true;
+	if (!options.run) return 'ran';
 	if (!command) {
 		warnings.push(`${pkg.root} has no "${options.mode}" command: its functions count as untested`);
-		return false;
+		return 'no command';
 	}
 	fs.rmSync(report, { force: true }); // never read a report left by an earlier run
 	const own = options.files.filter((file) => packageFor(options.config, file) === pkg);
 	const tests = command.includes('{tests}') ? testsFor(options, pkg, own) : [];
-	if (command.includes('{tests}') && tests.length === 0) return true; // no test reaches the change: untested
+	if (command.includes('{tests}') && tests.length === 0) return 'untested'; // no test reaches the change
 	const result = runTests(buildCommand(command, relativeToPackage(options.root, pkg.root, own), tests), path.resolve(options.root, pkg.root));
 	if (!result.ok) {
 		const tail = result.output.trim().split('\n').slice(-8).join('\n');
 		warnings.push(`tests failed in ${pkg.root}; coverage may be incomplete:\n${tail}`);
 	}
-	return true;
+	return 'ran';
 }
 
 export function collectCoverage(options: CollectOptions): Collected {
 	const coverage: LineCoverage = new Map();
 	const warnings: string[] = [];
+	const unmeasured: string[] = [];
 	const packages =
 		options.mode === 'testAll' ? options.config.packages : [...new Set(options.files.map((file) => packageFor(options.config, file)))];
 	for (const pkg of packages) {
 		if (!pkg) continue;
 		const packageRoot = path.resolve(options.root, pkg.root);
 		const report = path.resolve(packageRoot, pkg.coverage);
-		if (!runPackage(options, pkg, report, warnings)) continue;
+		const outcome = runPackage(options, pkg, report, warnings);
+		if (outcome !== 'ran') continue;
 		if (fs.existsSync(report)) mergeCoverage(coverage, readCoverage(report, packageRoot));
-		else warnings.push(`no coverage report at ${path.relative(options.root, report)}; functions there count as untested`);
+		else {
+			unmeasured.push(pkg.root);
+			warnings.push(
+				`no coverage report at ${path.relative(options.root, report) || report}: the tests did not start or wrote no coverage ` +
+					'(missing dependencies or coverage provider?). Functions there are not measured.'
+			);
+		}
 	}
-	return { coverage, warnings };
+	return { coverage, warnings, unmeasured };
 }

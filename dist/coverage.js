@@ -138,7 +138,8 @@ function neverCalled(fn, lines) {
 }
 /**
  * Whether a file's coverage looks mapped onto its source lines. Coverage of transpiled output (a
- * test runner without source maps) points at lines past the end or at blank lines.
+ * test runner without source maps) points at lines past the end or at blank lines. Comment lines
+ * do not count against it: some reporters (node:test) list them.
  */
 export function looksSourceMapped(sourceText, lines) {
     if (!lines || lines.size === 0)
@@ -147,7 +148,7 @@ export function looksSourceMapped(sourceText, lines) {
     let suspicious = 0;
     for (const line of lines.keys()) {
         const text = sourceLines[line - 1];
-        if (text === undefined || text.trim() === '' || /^\s*(\/\/|\*|\/\*)/.test(text))
+        if (text === undefined || text.trim() === '')
             suspicious++;
     }
     return suspicious / lines.size <= 0.1;

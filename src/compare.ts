@@ -13,7 +13,8 @@ export type Measured = FunctionInfo & { file: string; coverage: number; crap: nu
 export type BaseFunction = { name: string; bodyHash: string; complexity: number; bodyText?: string; crap?: number };
 
 export type Kind = 'new' | 'changed' | 'moved';
-export type Status = 'ok' | 'warn' | 'fail';
+/** warn: let through. unmeasured: its package wrote no coverage report, so no verdict. */
+export type Status = 'ok' | 'warn' | 'fail' | 'unmeasured';
 export type Match = { kind: Kind; base?: BaseFunction };
 
 export type Verdict = Measured & {
@@ -122,9 +123,13 @@ function letThroughReason(fn: Measured, base: BaseFunction, threshold: number): 
 
 function judgeExisting(fn: Measured, base: BaseFunction, threshold: number): { status: Status; reason?: string } {
 	if (fn.crap <= threshold) return { status: 'ok' };
-	return fn.complexity > base.complexity
-		? { status: 'fail', reason: `complexity rose from ${base.complexity} and CRAP is over ${threshold}` }
-		: { status: 'warn', reason: letThroughReason(fn, base, threshold) };
+	if (fn.complexity <= base.complexity) return { status: 'warn', reason: letThroughReason(fn, base, threshold) };
+	// Full coverage leaves CRAP equal to complexity, so above the threshold no test can make it pass.
+	const why =
+		fn.complexity > threshold
+			? `complexity rose from ${base.complexity}; above ${threshold} no test can pass it: split it, or keep it from growing`
+			: `complexity rose from ${base.complexity} and CRAP is over ${threshold}`;
+	return { status: 'fail', reason: why };
 }
 
 export function judge(fn: Measured, match: Match, threshold: number): Verdict {

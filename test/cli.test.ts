@@ -116,8 +116,36 @@ describe('crap-check', () => {
 		write('src/price.ts', branchy);
 		write('lcov.info', 'SF:src/price.ts\nDA:2,1\nDA:3,1\nDA:4,1\nend_of_record\n');
 		commit('price with a stale report');
-		expect(run()).toBe(1);
+		expect(run()).toBe(2);
 		expect(output.join('\n')).toContain('no coverage report at lcov.info');
+		expect(output.join('\n')).toContain('| – | 6 | – | `src/price.ts:1` price | ? new: not measured (no coverage report) |');
+	});
+
+	it('runs no tests when the change touches no function, only text in a source file', () => {
+		write('crap.config.json', JSON.stringify({ base: 'main', packages: [{ root: '.', coverage: 'lcov.info', test: 'exit 7' }] }));
+		write('src/copy.ts', 'export const title = "Old";\n');
+		commit('copy');
+		git('checkout', '-q', 'main');
+		git('merge', '-q', 'feature');
+		git('checkout', '-qb', 'edit');
+		write('src/copy.ts', 'export const title = "New";\n');
+		commit('edit copy');
+		expect(run()).toBe(0);
+		expect(output.join('\n')).not.toContain('tests failed');
+	});
+
+	it('still fails a measured package while another one has no report', () => {
+		write('crap.config.json', JSON.stringify({
+			base: 'main',
+			packages: [{ root: 'a', coverage: 'lcov.info' }, { root: 'b', coverage: 'lcov.info' }]
+		}));
+		write('a/price.ts', branchy);
+		write('a/lcov.info', 'SF:price.ts\nDA:9,1\nend_of_record\n');
+		write('b/other.ts', branchy.replace('price', 'other'));
+		commit('two packages');
+		expect(run('--no-run')).toBe(1);
+		expect(output.join('\n')).toContain('✗ new');
+		expect(output.join('\n')).toContain('? new: not measured');
 	});
 
 	it('with --ref judges the pushed commit, and refuses while the package has uncommitted changes', () => {

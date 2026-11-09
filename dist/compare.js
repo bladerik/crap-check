@@ -99,9 +99,13 @@ function letThroughReason(fn, base, threshold) {
 function judgeExisting(fn, base, threshold) {
     if (fn.crap <= threshold)
         return { status: 'ok' };
-    return fn.complexity > base.complexity
-        ? { status: 'fail', reason: `complexity rose from ${base.complexity} and CRAP is over ${threshold}` }
-        : { status: 'warn', reason: letThroughReason(fn, base, threshold) };
+    if (fn.complexity <= base.complexity)
+        return { status: 'warn', reason: letThroughReason(fn, base, threshold) };
+    // Full coverage leaves CRAP equal to complexity, so above the threshold no test can make it pass.
+    const why = fn.complexity > threshold
+        ? `complexity rose from ${base.complexity}; above ${threshold} no test can pass it: split it, or keep it from growing`
+        : `complexity rose from ${base.complexity} and CRAP is over ${threshold}`;
+    return { status: 'fail', reason: why };
 }
 export function judge(fn, match, threshold) {
     if (match.kind === 'new' || !match.base) {

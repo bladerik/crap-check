@@ -78,6 +78,36 @@ export default function () {}
 	});
 });
 
+describe('logical assignment and assigned functions', () => {
+	it('counts ??=, ||= and &&= as branches and names a function after what it is assigned to', () => {
+		const fns = byName(`
+function setup(w, script) {
+	w.gtag ??= function () { (w.dataLayer ||= []).push(arguments); };
+	script.onerror = () => fail();
+	w.ready &&= check();
+}`);
+		expect(fns.setup.complexity).toBe(3);
+		expect(fns['setup/w.gtag'].complexity).toBe(2);
+		expect(fns['setup/script.onerror']).toBeDefined();
+	});
+
+	it('keeps comments and line breaks out of callback names', () => {
+		const names = findFunctions(
+			'a.ts',
+			`
+const names = chunks // older chunks were renamed
+	.filter((c) => c.old)
+	.map((c) => c.name);
+app.get('/orders', /* legacy */ (req) => 1);`
+		).map((fn) => fn.name);
+		expect(names).toEqual([
+			'chunks.filter(<callback>)',
+			'chunks.filter((c) => c.old).map(<callback>)',
+			"app.get('/orders', <callback>)"
+		]);
+	});
+});
+
 describe('callbacks', () => {
 	it('names a function passed to a call after the call and numbers repeats', () => {
 		const names = findFunctions(

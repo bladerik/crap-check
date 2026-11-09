@@ -23,6 +23,8 @@ export type CheckInput = {
 	readBase: (file: string) => string | undefined;
 	/** Only shown: the base CRAP of changed functions. Verdicts come from the base source. */
 	baseline?: Baseline;
+	/** Package roots that wrote no coverage report: their functions get no verdict. */
+	unmeasured?: string[];
 };
 
 export type CheckResult = {
@@ -31,6 +33,8 @@ export type CheckResult = {
 	changedFiles: string[];
 	tier?: ReviewTier;
 	failed: boolean;
+	/** Some touched functions could not be measured. */
+	incomplete: boolean;
 };
 
 /** Every function of one file with its coverage and CRAP. */
@@ -109,7 +113,14 @@ function matchFor(view: FileView, fn: Measured, moves: Map<Measured, BaseFunctio
 	return moved ? { kind: 'moved', base: moved } : { kind: 'new' };
 }
 
-const severity = { fail: 0, warn: 1, ok: 2 } as const;
+const severity = { fail: 0, unmeasured: 1, warn: 2, ok: 3 } as const;
+
+/** A function in a package without a coverage report: 0% would be a guess, so no verdict. */
+function unmeasuredIn(input: CheckInput): (verdict: Verdict) => Verdict {
+	const roots = new Set(input.unmeasured ?? []);
+	return (verdict) =>
+		roots.has(packageFor(input.config, verdict.file)?.root ?? '') ? { ...verdict, status: 'unmeasured', reason: 'no coverage report' } : verdict;
+}
 
 /** Every path the change touches, old paths of renames and deletions included. */
 const touchedPaths = (changes: FileChange[]) =>
@@ -125,6 +136,7 @@ export function checkChange(input: CheckInput): CheckResult {
 		.flatMap((view) =>
 			touchedFunctions(view.head, view.change.addedLines).map((fn) => judge(fn, matchFor(view, fn, moves), input.config.threshold))
 		)
+		.map(unmeasuredIn(input))
 		.sort((a, b) => severity[a.status] - severity[b.status] || b.crap - a.crap);
 	const changedFiles = touchedPaths(input.changes);
 	return {
@@ -132,6 +144,7 @@ export function checkChange(input: CheckInput): CheckResult {
 		warnings,
 		changedFiles,
 		tier: suggestTier(changedFiles.filter(reviewableFileFilter(input.config)), input.config.reviewTiers),
-		failed: verdicts.some((verdict) => verdict.status === 'fail')
+		failed: verdicts.some((verdict) => verdict.status === 'fail'),
+		incomplete: verdicts.some((verdict) => verdict.status === 'unmeasured')
 	};
 }

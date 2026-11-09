@@ -100,6 +100,39 @@ Test commands with jest and ts-jest need source maps (`tsconfig: { sourceMap: tr
 ts-jest options), or coverage points at the lines of the compiled output. crap-check warns when a
 report's lines do not match the source.
 
+Check that the runner's own `include` covers the test files `{tests}` passes: vitest silently skips
+a file outside it (a `scripts/` folder, for example), and the code it tests counts as untested.
+
+### More than one test runner
+
+Give each runner its own package entry; a file belongs to the entry with the longest matching
+`root`. Tests under `node --test` for `scripts/`, vitest for the rest:
+
+```json
+"packages": [
+	{ "root": ".", "test": "npx vitest related --run --coverage.enabled --coverage.reporter=lcov {files}", "coverage": "coverage/lcov.info" },
+	{
+		"root": "scripts",
+		"tests": ["**/*.test.mjs"],
+		"test": "mkdir -p coverage && node --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info {tests}",
+		"coverage": "coverage/lcov.info"
+	}
+]
+```
+
+(`node --test` needs the folder of its report to exist, hence `mkdir -p`.)
+
+### What it cannot see
+
+- **Code tested only in a browser.** Coverage comes from the test process. Code that runs inside a
+  headless browser (rendering through Playwright or Puppeteer) counts as untested even when a test
+  exercises it. Test the logic directly, or collect the browser's coverage into the report.
+- **Svelte, Vue and other component files.** Only `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs` and `.cjs`
+  are scored; the logic in a component's `<script>` is not.
+- **Functions above the threshold in complexity.** With full coverage CRAP equals complexity, so a
+  new function with complexity over 30 cannot pass, and a changed one fails when it gets more
+  complex. Split it.
+
 ## Use
 
 ```sh
@@ -111,7 +144,7 @@ npx crap-check baseline   # store the CRAP of every function at HEAD (run on the
 | Option | |
 | --- | --- |
 | `--base <ref>` | Compare with another branch. |
-| `--ref <commit>` | Judge this commit instead of the working tree (what a pre-push hook needs). Config comes from that commit too. Tests run on the working tree, so uncommitted JS/TS files in the checked packages (untracked included) stop the check with exit 2. |
+| `--ref <commit>` | Judge this commit instead of the working tree (what a pre-push hook needs). Config comes from that commit too. Tests run on the working tree, so uncommitted files in the checked packages (untracked included; docs and the coverage report aside) stop the check with exit 2. |
 | `--no-run` | Do not run tests; read the coverage reports already on disk. |
 | `--json` | JSON instead of the Markdown table. |
 | `--baseline <file>` | Use this baseline file instead of the cached one. |
@@ -119,10 +152,17 @@ npx crap-check baseline   # store the CRAP of every function at HEAD (run on the
 | `--limit <n>` | Rows for `--all` (default 20). |
 | `--config <file>` | Another config file. |
 
-Exit codes: `0` passed, `1` a function failed, `2` crap-check itself could not run.
+Exit codes: `0` passed, `1` a function failed, `2` no verdict: crap-check could not run, or a
+package's tests wrote no coverage report.
 
+Tests run only when the change touches a function, so a copy edit in a source file costs nothing.
 Failing tests do not stop the check: it gates CRAP, not tests. They show up as a warning and their
-partial coverage counts.
+partial coverage counts. Tests that do not start at all (missing dependencies or coverage provider)
+write no report: those functions show `? not measured` instead of a guessed 0%, and the check exits
+2 until the setup is fixed.
+
+To judge an older commit with a config it does not have yet, check the commit out, put the config
+in the working tree and run `crap-check --base <its parent>` (without `--ref`).
 
 ### Changed functions and the baseline
 
@@ -196,13 +236,15 @@ chmod +x .githooks/pre-push && git config core.hooksPath .githooks
   the TypeScript compiler from `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`. Names are qualified:
   `outer/inner`, `Class.method`, `object.property`, `mutation.handler`; a function passed to a call
   is named after the call and its other arguments (`app.get('/orders', <callback>)`,
-  `useEffect(<callback>, [id])`), and repeated names get `#2`, `#3` in source order.
-- **Complexity:** 1 plus each `if`, `?:`, `case`, loop, `catch`, `&&`, `||` and `??`. Branches of a
-  nested function count for that function.
+  `useEffect(<callback>, [id])`), a function assigned to something after it (`script.onerror`), and
+  repeated names get `#2`, `#3` in source order.
+- **Complexity:** 1 plus each `if`, `?:`, `case`, loop, `catch`, `&&`, `||`, `??`, `&&=`, `||=` and
+  `??=`. Branches of a nested function count for that function.
 - **Coverage:** the instrumented lines inside the function that ran, without the body of nested
   functions, and without its own first or last line when other code shares it (`app.get('/x', (req)
   => {` runs when the module loads, whether or not the handler ever does). A function missing from
-  the report is untested.
+  the report is untested. A function on one line (all its lines shared) counts as run only when the
+  report's function records say it was called.
 - **Changed:** a function containing an added or modified line. It is paired with its base version
   in the same file by an identical body first, then by name when no function of that name was added
   or removed, then by the most similar body (at least half of the identifiers shared, best pairs

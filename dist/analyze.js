@@ -80,7 +80,12 @@ function matchFor(view, fn, moves) {
     const moved = moves.get(fn);
     return moved ? { kind: 'moved', base: moved } : { kind: 'new' };
 }
-const severity = { fail: 0, warn: 1, ok: 2 };
+const severity = { fail: 0, unmeasured: 1, warn: 2, ok: 3 };
+/** A function in a package without a coverage report: 0% would be a guess, so no verdict. */
+function unmeasuredIn(input) {
+    const roots = new Set(input.unmeasured ?? []);
+    return (verdict) => roots.has(packageFor(input.config, verdict.file)?.root ?? '') ? { ...verdict, status: 'unmeasured', reason: 'no coverage report' } : verdict;
+}
 /** Every path the change touches, old paths of renames and deletions included. */
 const touchedPaths = (changes) => [...new Set(changes.flatMap((change) => [change.file, change.previousFile].filter((file) => Boolean(file))))];
 export function checkChange(input) {
@@ -91,6 +96,7 @@ export function checkChange(input) {
     const moves = assignMoves(views, unpairedBase(views));
     const verdicts = views
         .flatMap((view) => touchedFunctions(view.head, view.change.addedLines).map((fn) => judge(fn, matchFor(view, fn, moves), input.config.threshold)))
+        .map(unmeasuredIn(input))
         .sort((a, b) => severity[a.status] - severity[b.status] || b.crap - a.crap);
     const changedFiles = touchedPaths(input.changes);
     return {
@@ -98,6 +104,7 @@ export function checkChange(input) {
         warnings,
         changedFiles,
         tier: suggestTier(changedFiles.filter(reviewableFileFilter(input.config)), input.config.reviewTiers),
-        failed: verdicts.some((verdict) => verdict.status === 'fail')
+        failed: verdicts.some((verdict) => verdict.status === 'fail'),
+        incomplete: verdicts.some((verdict) => verdict.status === 'unmeasured')
     };
 }
