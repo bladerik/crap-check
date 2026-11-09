@@ -110,9 +110,11 @@ const DIFF = ['-c', 'core.quotePath=false', 'diff', '--no-ext-diff', '--no-textc
 export function changedFiles(cwd, base, ref) {
     return parseUnifiedDiff(git(cwd, [...DIFF, '-U0', '-M', base, ...(ref ? [ref] : [])]));
 }
-/** Which of `files` differ between `ref` and the working tree. */
-export function filesDifferingFrom(cwd, ref, files) {
-    if (files.length === 0)
+/** Files under `paths` that differ from `ref` in the working tree, untracked ones included. */
+export function uncommittedFiles(cwd, ref, paths) {
+    if (paths.length === 0)
         return [];
-    return git(cwd, [...DIFF, '--name-only', '-z', ref, '--', ...files]).split('\0').filter(Boolean);
+    const changed = git(cwd, [...DIFF, '--name-only', '-z', ref, '--', ...paths]).split('\0');
+    const untracked = git(cwd, ['ls-files', '--others', '--exclude-standard', '-z', '--', ...paths]).split('\0');
+    return [...new Set([...changed, ...untracked].filter(Boolean))];
 }

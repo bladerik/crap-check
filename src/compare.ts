@@ -1,28 +1,20 @@
 /**
  * The verdict for each function a change touches. New functions must stay at or under the
  * threshold. A changed function may sit above it as long as it did not get more complex, so a
- * one-line fix in old code does not force a rewrite. (Complexity, not CRAP: the check measures
- * coverage with the related tests only, a baseline with the whole suite, so their CRAP differs.)
+ * one-line fix in old code does not force a rewrite; such functions are reported as "let through".
+ * (Complexity, not CRAP, decides: the check measures coverage with the related tests only, a
+ * baseline with the whole suite, so their CRAP values are not comparable.)
  */
 import type { FunctionInfo } from './functions.js';
 
 export type Measured = FunctionInfo & { file: string; coverage: number; crap: number };
 
-/** What base knew about a function: its complexity, and its CRAP when a baseline exists. */
-export type BaseFunction = { name: string; bodyHash: string; complexity: number; crap?: number };
-
-/** Base functions of every file the change touches, with their file, and what still exists at head. */
-export type BaseContext = {
-	/** Base functions of the same file (its previous path when renamed). */
-	sameFile: BaseFunction[];
-	/** Base functions of all changed, renamed and deleted files. */
-	pool: Array<BaseFunction & { file: string }>;
-	/** `file::name` of every function at head in the changed files. */
-	atHead: Set<string>;
-};
+/** A function on base: parsed from the base source, with its CRAP when a baseline knows it. */
+export type BaseFunction = { name: string; bodyHash: string; complexity: number; bodyText?: string; crap?: number };
 
 export type Kind = 'new' | 'changed' | 'moved';
 export type Status = 'ok' | 'warn' | 'fail';
+export type Match = { kind: Kind; base?: BaseFunction };
 
 export type Verdict = Measured & {
 	kind: Kind;
@@ -30,8 +22,6 @@ export type Verdict = Measured & {
 	base?: BaseFunction;
 	reason?: string;
 };
-
-export const headKey = (file: string, name: string) => `${file}::${name}`;
 
 const touches = (fn: FunctionInfo, lines: Set<number>) => {
 	for (const line of lines) if (line >= fn.startLine && line <= fn.endLine) return true;
@@ -43,28 +33,78 @@ export function touchedFunctions<T extends FunctionInfo>(functions: T[], addedLi
 	return functions.filter((fn) => touches(fn, addedLines));
 }
 
+/** The name without its `#2` repeat label. */
+export const stem = (name: string) => name.replace(/#\d+$/, '');
+
+const tokens = (text: string) => new Set(text.split(/[^A-Za-z0-9_$]+/).filter(Boolean));
+
+/** Share of distinct identifiers two bodies have in common (Jaccard), 0..1. */
+export function similarity(a: string, b: string): number {
+	const left = tokens(a);
+	const right = tokens(b);
+	if (left.size === 0 && right.size === 0) return 1;
+	let shared = 0;
+	for (const token of left) if (right.has(token)) shared++;
+	return shared / (left.size + right.size - shared);
+}
+
+const countBy = (names: string[]) => {
+	const counts = new Map<string, number>();
+	for (const name of names) counts.set(stem(name), (counts.get(stem(name)) ?? 0) + 1);
+	return counts;
+};
+
 /**
- * Same name in the same file: changed. Otherwise an identical body whose original is gone at head
- * (renamed, or moved to another file): moved. A copy of a function that still exists is new.
+ * Pairs the head functions of one file with their base versions (head index -> base index):
+ * 1. an identical body under the same name stem;
+ * 2. the same name, when that stem occurs equally often on both sides (nothing inserted or removed);
+ * 3. the most similar body under the same stem, if at least half of its identifiers are shared.
+ * Repeat labels (`#2`) shift when a same-named callback is inserted, so they never decide alone.
  */
-export function matchBase(fn: FunctionInfo, base: BaseContext): { kind: Kind; base?: BaseFunction } {
-	const byName = base.sameFile.find((candidate) => candidate.name === fn.name);
-	if (byName) return { kind: 'changed', base: byName };
-	const moved = base.pool.find(
-		(candidate) => candidate.bodyHash === fn.bodyHash && !base.atHead.has(headKey(candidate.file, candidate.name))
-	);
-	return moved ? { kind: 'moved', base: moved } : { kind: 'new' };
+export function pairFunctions(head: FunctionInfo[], base: BaseFunction[]): Map<number, number> {
+	const pairs = new Map<number, number>();
+	const used = new Set<number>();
+	const pair = (h: number, b: number) => (pairs.set(h, b), used.add(b));
+	const free = (h: number) => base.map((_, b) => b).filter((b) => !used.has(b) && stem(base[b].name) === stem(head[h].name));
+	head.forEach((fn, h) => {
+		const same = free(h).find((b) => base[b].bodyHash === fn.bodyHash);
+		if (same !== undefined) pair(h, same);
+	});
+	const headCounts = countBy(head.map((fn) => fn.name));
+	const baseCounts = countBy(base.map((fn) => fn.name));
+	head.forEach((fn, h) => {
+		if (pairs.has(h) || headCounts.get(stem(fn.name)) !== baseCounts.get(stem(fn.name))) return;
+		const byName = free(h).find((b) => base[b].name === fn.name);
+		if (byName !== undefined) pair(h, byName);
+	});
+	head.forEach((fn, h) => {
+		if (pairs.has(h)) return;
+		const scored = free(h).map((b) => ({ b, score: similarity(fn.bodyText, base[b].bodyText ?? '') }));
+		const best = scored.sort((x, y) => y.score - x.score)[0];
+		if (best && best.score >= 0.5) pair(h, best.b);
+	});
+	return pairs;
+}
+
+/** Why an old function over the threshold was let through, with what the baseline knew. */
+function letThroughReason(fn: Measured, base: BaseFunction, threshold: number): string {
+	if (base.crap !== undefined && base.crap <= threshold) {
+		return `was CRAP ${base.crap.toFixed(1)} in the baseline: it lost coverage, or the related tests miss it`;
+	}
+	if (base.crap !== undefined && fn.crap > base.crap + 0.05) {
+		return `not more complex; CRAP rose from ${base.crap.toFixed(1)} (lower coverage than the full-suite baseline)`;
+	}
+	return `over ${threshold} before too, not more complex`;
 }
 
 function judgeExisting(fn: Measured, base: BaseFunction, threshold: number): { status: Status; reason?: string } {
 	if (fn.crap <= threshold) return { status: 'ok' };
 	return fn.complexity > base.complexity
 		? { status: 'fail', reason: `complexity rose from ${base.complexity} and CRAP is over ${threshold}` }
-		: { status: 'warn', reason: `over ${threshold}, not more complex than before` };
+		: { status: 'warn', reason: letThroughReason(fn, base, threshold) };
 }
 
-export function judge(fn: Measured, base: BaseContext, threshold: number): Verdict {
-	const match = matchBase(fn, base);
+export function judge(fn: Measured, match: Match, threshold: number): Verdict {
 	if (match.kind === 'new' || !match.base) {
 		return fn.crap <= threshold
 			? { ...fn, kind: 'new', status: 'ok' }

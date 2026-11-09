@@ -6,10 +6,13 @@ A CRAP score gate for the functions a change touches, in JavaScript and TypeScri
 | CRAP | CC | Cov | Function | Result |
 | ---: | ---: | ---: | --- | --- |
 | 42.0 | 6 | 0% | `src/billing/price.ts:1` price | ✗ new: new function over 30 |
-| 30.0 | 5 | 0% | `src/worker.ts:1228` detectFaces | ✓ changed |
+| 48.0 | 7 | 10% | `src/worker.ts:1228` detectFaces | ⚠ changed: let through |
 | 13.0 | 13 | 100% | `src/results.ts:140` summarizeRun | ✓ new |
 
-3 function(s) checked against CRAP 30: 1 failed, 0 warned.
+3 function(s) checked against CRAP 30: 1 failed, 1 let through.
+
+Let through, not blocked: 1 existing function(s) over CRAP 30 that did not get more complex. Tell the user; a test is the fix.
+- `src/worker.ts:1228` detectFaces: over 30 before too, not more complex
 
 Suggested review: **billing**, 2 reviewer(s), xhigh
 ```
@@ -34,7 +37,8 @@ modifies:
 
 - a **new** function must score at most the threshold (30);
 - a **changed** function may stay above it only if it did not get more complex than on the base
-  branch, so a one-line fix in old code does not force a rewrite;
+  branch, so a one-line fix in old code does not force a rewrite. It is not blocked, but listed
+  under "Let through" with the reason, so nobody misses it;
 - a change without functions (text, markup, images) passes at once.
 
 It also suggests how much review the change needs, from paths you configure (billing code: two
@@ -107,7 +111,7 @@ npx crap-check baseline   # store the CRAP of every function at HEAD (run on the
 | Option | |
 | --- | --- |
 | `--base <ref>` | Compare with another branch. |
-| `--ref <commit>` | Judge this commit instead of the working tree (what a pre-push hook needs). Tests still run on the working tree; crap-check warns when it differs. |
+| `--ref <commit>` | Judge this commit instead of the working tree (what a pre-push hook needs). Tests run on the working tree, so uncommitted changes in the checked packages (untracked files included) stop the check with exit 2. |
 | `--no-run` | Do not run tests; read the coverage reports already on disk. |
 | `--json` | JSON instead of the Markdown table. |
 | `--baseline <file>` | Use this baseline file instead of the cached one. |
@@ -124,7 +128,9 @@ partial coverage counts.
 
 A changed function over the threshold fails only when its complexity rose. Complexity, not CRAP:
 the check measures coverage with the tests related to the change, while a full run measures it with
-the whole suite, so the two CRAP values are not comparable.
+the whole suite, so the two CRAP values are not comparable. When the baseline knows the function,
+"Let through" says whether it was already over the limit, or was under it and lost coverage (or the
+related tests miss it).
 
 `crap-check baseline` stores the CRAP of every function at a commit (run it on a checkout of the
 base branch). It lives in the repository's git directory, shared by all worktrees, keyed by
@@ -177,15 +183,19 @@ chmod +x .githooks/pre-push && git config core.hooksPath .githooks
 - **Functions:** declarations, expressions, arrows, methods, accessors and constructors, read with
   the TypeScript compiler from `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`. Names are qualified:
   `outer/inner`, `Class.method`, `object.property`, `mutation.handler`; a function passed to a call
-  is named after it (`app.get(callback)`), and repeated names get `#2`, `#3` in source order.
+  is named after the call and its other arguments (`app.get('/orders', <callback>)`,
+  `useEffect(<callback>, [id])`), and repeated names get `#2`, `#3` in source order.
 - **Complexity:** 1 plus each `if`, `?:`, `case`, loop, `catch`, `&&`, `||` and `??`. Branches of a
   nested function count for that function.
 - **Coverage:** the instrumented lines inside the function that ran, without the body of nested
   functions (their first and last line also hold the outer code). A function missing from the
   report is untested.
-- **Changed:** a function containing an added or modified line. It is matched with base by name in
-  the same file, or by an identical body whose original is gone (renamed, or moved to another
-  changed file). A copy of a function that still exists is new.
+- **Changed:** a function containing an added or modified line. It is paired with its base version
+  in the same file by an identical body first, then by name when no function of that name was added
+  or removed, then by the most similar body of that name (at least half of the identifiers shared).
+  An unpaired function with the identical body of a removed one moved (renamed, or to another
+  changed file); each removed function moves once, so a copy is new. Names and complexity on base
+  always come from the base source; the baseline only adds the base CRAP shown in the table.
 - **Git:** diffs ignore the user's diff settings (external diff, textconv, prefixes, path quoting),
   and file names with spaces, tabs or non-ASCII characters are read correctly.
 

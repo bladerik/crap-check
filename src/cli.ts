@@ -12,7 +12,7 @@ import { baselinePath, readBaseline, writeBaseline, type Baseline } from './base
 import { loadConfig, packageFor, type Config } from './config.js';
 import type { LineCoverage } from './coverage.js';
 import { collectCoverage } from './collect.js';
-import { changedFiles, fileAt, filesDifferingFrom, gitCommonDir, headSha, mergeBase, repoRoot, trackedFiles as gitTrackedFiles } from './git.js';
+import { changedFiles, fileAt, gitCommonDir, headSha, mergeBase, repoRoot, trackedFiles as gitTrackedFiles, uncommittedFiles } from './git.js';
 import { jsonReport, markdownReport, topReport } from './report.js';
 import { sourceFileFilter } from './tiers.js';
 
@@ -95,13 +95,18 @@ function runAll(root: string, config: Config, options: Options): number {
 	return 0;
 }
 
-/** With `--ref`, sources come from that commit; tests still run on the working tree, so say when they differ. */
-function refWarnings(root: string, ref: string | undefined, sources: string[]): string[] {
-	if (!ref) return [];
-	const differing = filesDifferingFrom(root, ref, sources);
-	return differing.length
-		? [`the working tree differs from ${ref.slice(0, 12)} in ${differing.join(', ')}; coverage comes from the working tree`]
-		: [];
+/**
+ * With `--ref`, sources come from that commit but tests run on the working tree. Uncommitted
+ * changes in the packages being checked (a test not yet committed, for example) would lend the
+ * commit coverage it does not have, so refuse.
+ */
+function assertCommitted(root: string, config: Config, ref: string | undefined, sources: string[]): void {
+	if (!ref) return;
+	const roots = [...new Set(sources.map((file) => packageFor(config, file)?.root ?? '.'))];
+	const dirty = uncommittedFiles(root, ref, roots);
+	if (dirty.length === 0) return;
+	const listed = dirty.slice(0, 5).join(', ') + (dirty.length > 5 ? ', …' : '');
+	throw new Error(`uncommitted changes in ${roots.join(', ')} (${listed}): commit or stash them first; the tests run on the working tree`);
 }
 
 function runCheck(root: string, config: Config, options: Options): number {
@@ -110,11 +115,12 @@ function runCheck(root: string, config: Config, options: Options): number {
 	const isSource = sourceFileFilter(config);
 	const read = options.ref ? (file: string) => fileAt(root, options.ref!, file) : readCurrent(root);
 	const sources = changes.map((change) => change.file).filter((file) => isSource(file) && read(file) !== undefined);
+	assertCommitted(root, config, options.ref, sources);
 	const collected = sources.length
 		? collectCoverage({ root, config, files: sources, mode: 'test', run: options.run, trackedFiles: trackedFiles(root) })
 		: { coverage: new Map() as LineCoverage, warnings: [] as string[] };
 	const { coverage } = collected;
-	const warnings = [...refWarnings(root, options.ref, sources), ...collected.warnings];
+	const warnings = collected.warnings;
 	const baseline = readBaseline(options.baselineFile ?? baselinePath(gitCommonDir(root), baseSha));
 	const result = checkChange({ repoRoot: root, config, changes, coverage, readCurrent: read, readBase: (file) => fileAt(root, baseSha, file), baseline });
 	result.warnings.unshift(...warnings);

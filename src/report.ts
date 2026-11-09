@@ -10,8 +10,20 @@ function crapCell(verdict: Verdict): string {
 }
 
 function resultCell(verdict: Verdict): string {
-	const icon = { ok: '✓', warn: '⚠', fail: '✗' }[verdict.status];
+	if (verdict.status === 'warn') return `⚠ ${verdict.kind}: let through`;
+	const icon = verdict.status === 'ok' ? '✓' : '✗';
 	return verdict.reason ? `${icon} ${verdict.kind}: ${verdict.reason}` : `${icon} ${verdict.kind}`;
+}
+
+/** Old functions over the threshold that passed because they did not get more complex. */
+function letThroughLines(verdicts: Verdict[], threshold: number): string[] {
+	const warned = verdicts.filter((verdict) => verdict.status === 'warn');
+	if (warned.length === 0) return [];
+	return [
+		'',
+		`Let through, not blocked: ${warned.length} existing function(s) over CRAP ${threshold} that did not get more complex. Tell the user; a test is the fix.`,
+		...warned.map((verdict) => `- \`${escapeCell(`${verdict.file}:${verdict.startLine}`)}\` ${escapeCell(verdict.name)}: ${verdict.reason}`)
+	];
 }
 
 const escapeCell = (text: string) => text.replace(/\|/g, '\\|');
@@ -37,7 +49,8 @@ export function markdownReport(result: CheckResult, threshold: number): string {
 		lines.push(...result.verdicts.map(row));
 		const failed = result.verdicts.filter((verdict) => verdict.status === 'fail').length;
 		const warned = result.verdicts.filter((verdict) => verdict.status === 'warn').length;
-		lines.push('', `${result.verdicts.length} function(s) checked against CRAP ${threshold}: ${failed} failed, ${warned} warned.`);
+		lines.push('', `${result.verdicts.length} function(s) checked against CRAP ${threshold}: ${failed} failed, ${warned} let through.`);
+		lines.push(...letThroughLines(result.verdicts, threshold));
 	}
 	lines.push('', tierLine(result));
 	for (const warning of result.warnings) lines.push('', `Warning: ${warning}`);

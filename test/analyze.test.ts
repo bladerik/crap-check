@@ -53,11 +53,18 @@ describe('checking a change', () => {
 		expect(result.verdicts[0]).toMatchObject({ kind: 'changed', status: 'warn' });
 	});
 
-	it('shows the baseline CRAP but judges an old function by its complexity', () => {
+	it('shows the baseline CRAP but judges an old function by its complexity from the base source', () => {
 		const baseline = { sha: 'abc', createdAt: '', files: { 'src/billing/price.ts': [{ name: 'price', bodyHash: 'x', complexity: 6, crap: 10 }] } };
-		expect(checkChange(input({ baseline })).verdicts[0]).toMatchObject({ status: 'warn', base: { crap: 10 } });
-		const simpler = { sha: 'abc', createdAt: '', files: { 'src/billing/price.ts': [{ name: 'price', bodyHash: 'x', complexity: 5, crap: 5 }] } };
-		expect(checkChange(input({ baseline: simpler })).verdicts[0]).toMatchObject({ status: 'fail' });
+		const result = checkChange(input({ baseline, readBase: () => branchy }));
+		expect(result.verdicts[0]).toMatchObject({ status: 'warn', base: { crap: 10, complexity: 6 } });
+		expect(markdownReport(result, 30)).toContain('Let through, not blocked: 1 existing function(s) over CRAP 30');
+		const simpler = branchy.replace(' || seats === 0', '');
+		expect(checkChange(input({ readBase: () => simpler })).verdicts[0]).toMatchObject({ status: 'fail' });
+	});
+
+	it('ignores names an older baseline wrote: verdicts come from the base source', () => {
+		const old = { sha: 'abc', createdAt: '', files: { 'src/billing/price.ts': [{ name: '<anonymous>', bodyHash: 'x', complexity: 1, crap: 1 }] } };
+		expect(checkChange(input({ baseline: old, readBase: () => branchy })).verdicts[0]).toMatchObject({ kind: 'changed', status: 'warn' });
 	});
 
 	it('suggests review for deleted files and for the old path of a renamed file', () => {
@@ -108,7 +115,7 @@ describe('the report', () => {
 	it('is a Markdown table with the review suggestion', () => {
 		const text = markdownReport(checkChange(input()), 30);
 		expect(text).toContain('| 42.0 | 6 | 0% | `src/billing/price.ts:1` price | ✗ new: new function over 30 |');
-		expect(text).toContain('1 function(s) checked against CRAP 30: 1 failed, 0 warned.');
+		expect(text).toContain('1 function(s) checked against CRAP 30: 1 failed, 0 let through.');
 		expect(text).toContain('Suggested review: **billing**, 2 reviewer(s), xhigh');
 	});
 

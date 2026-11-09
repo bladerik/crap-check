@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import ts from 'typescript';
 
 export type FunctionInfo = {
-	/** Qualified name: `outer/inner`, `Class.method`, `object.property`, or `<anonymous>`. */
+	/** Qualified name: `outer/inner`, `Class.method`, `object.property`, `call(<callback>)`. */
 	name: string;
 	startLine: number;
 	endLine: number;
@@ -14,6 +14,8 @@ export type FunctionInfo = {
 	/** Lines of nested functions, which count for those functions, not this one. */
 	nestedRanges: Array<[number, number]>;
 	bodyHash: string;
+	/** The body with whitespace collapsed, to pair an edited function with its old version. */
+	bodyText: string;
 };
 
 const DECISION_KINDS = new Set([
@@ -50,12 +52,22 @@ export function cyclomaticComplexity(fn: ts.Node): number {
 	return count;
 }
 
-/** `app.get(callback)` for a function passed to a call; long callees are shortened. */
+const shorten = (text: string, max: number) => {
+	const flat = text.replace(/\s+/g, ' ').trim();
+	return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+};
+
+/**
+ * A function passed to a call is named after the call and its other arguments, which usually tell
+ * calls of the same function apart: `app.get('/orders', <callback>)`, `useEffect(<callback>, [id])`.
+ */
 function callbackName(node: ts.Node): string | undefined {
 	const call = node.parent;
 	if (!ts.isCallExpression(call) || !call.arguments.some((argument) => argument === node)) return undefined;
-	const callee = call.expression.getText().replace(/\s+/g, '');
-	return `${callee.length > 40 ? `${callee.slice(0, 39)}…` : callee}(callback)`;
+	const args = call.arguments.map((argument) =>
+		argument === node ? '<callback>' : isFunction(argument) ? '<fn>' : shorten(argument.getText(), 32)
+	);
+	return `${shorten(call.expression.getText(), 40)}(${args.join(', ')})`;
 }
 
 function ownName(node: ts.Node): string | undefined {
@@ -116,10 +128,10 @@ function qualifiedName(node: ts.Node): string {
 
 const lineOf = (source: ts.SourceFile, position: number) => source.getLineAndCharacterOfPosition(position).line + 1;
 
-function bodyHash(source: ts.SourceFile, fn: ts.FunctionLikeDeclaration): string {
-	const text = (fn.body ?? fn).getText(source).replace(/\s+/g, ' ').trim();
-	return createHash('sha1').update(text).digest('hex').slice(0, 16);
-}
+const bodyTextOf = (source: ts.SourceFile, fn: ts.FunctionLikeDeclaration) =>
+	(fn.body ?? fn).getText(source).replace(/\s+/g, ' ').trim();
+
+const hashOf = (text: string) => createHash('sha1').update(text).digest('hex').slice(0, 16);
 
 export function scriptKindFor(fileName: string): ts.ScriptKind {
 	if (/\.tsx$/i.test(fileName)) return ts.ScriptKind.TSX;
@@ -134,6 +146,7 @@ export function findFunctions(fileName: string, text: string): FunctionInfo[] {
 	const found: Array<FunctionInfo & { node: ts.Node }> = [];
 	const visit = (node: ts.Node) => {
 		if (isFunction(node)) {
+			const bodyText = bodyTextOf(source, node);
 			found.push({
 				node,
 				name: qualifiedName(node),
@@ -141,7 +154,8 @@ export function findFunctions(fileName: string, text: string): FunctionInfo[] {
 				endLine: lineOf(source, node.getEnd()),
 				complexity: cyclomaticComplexity(node),
 				nestedRanges: [],
-				bodyHash: bodyHash(source, node)
+				bodyHash: hashOf(bodyText),
+				bodyText
 			});
 		}
 		ts.forEachChild(node, visit);
@@ -155,7 +169,10 @@ export function findFunctions(fileName: string, text: string): FunctionInfo[] {
 	return numberRepeatedNames(found.map(({ node: _node, ...info }) => info));
 }
 
-/** Second and later functions with the same name get `#2`, `#3`, ... in source order. */
+/**
+ * Second and later functions with the same name get `#2`, `#3`, ... in source order. The number is
+ * only a label: pairing with the base version matches bodies first (compare.ts).
+ */
 function numberRepeatedNames(functions: FunctionInfo[]): FunctionInfo[] {
 	const seen = new Map<string, number>();
 	return functions.map((fn) => {

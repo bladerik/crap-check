@@ -36,13 +36,20 @@ export function cyclomaticComplexity(fn) {
     ts.forEachChild(fn, visit);
     return count;
 }
-/** `app.get(callback)` for a function passed to a call; long callees are shortened. */
+const shorten = (text, max) => {
+    const flat = text.replace(/\s+/g, ' ').trim();
+    return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+};
+/**
+ * A function passed to a call is named after the call and its other arguments, which usually tell
+ * calls of the same function apart: `app.get('/orders', <callback>)`, `useEffect(<callback>, [id])`.
+ */
 function callbackName(node) {
     const call = node.parent;
     if (!ts.isCallExpression(call) || !call.arguments.some((argument) => argument === node))
         return undefined;
-    const callee = call.expression.getText().replace(/\s+/g, '');
-    return `${callee.length > 40 ? `${callee.slice(0, 39)}…` : callee}(callback)`;
+    const args = call.arguments.map((argument) => argument === node ? '<callback>' : isFunction(argument) ? '<fn>' : shorten(argument.getText(), 32));
+    return `${shorten(call.expression.getText(), 40)}(${args.join(', ')})`;
 }
 function ownName(node) {
     const named = node;
@@ -103,10 +110,8 @@ function qualifiedName(node) {
     return `${prefix.join('/')}${isMember(node) ? '.' : '/'}${own}`;
 }
 const lineOf = (source, position) => source.getLineAndCharacterOfPosition(position).line + 1;
-function bodyHash(source, fn) {
-    const text = (fn.body ?? fn).getText(source).replace(/\s+/g, ' ').trim();
-    return createHash('sha1').update(text).digest('hex').slice(0, 16);
-}
+const bodyTextOf = (source, fn) => (fn.body ?? fn).getText(source).replace(/\s+/g, ' ').trim();
+const hashOf = (text) => createHash('sha1').update(text).digest('hex').slice(0, 16);
 export function scriptKindFor(fileName) {
     if (/\.tsx$/i.test(fileName))
         return ts.ScriptKind.TSX;
@@ -122,6 +127,7 @@ export function findFunctions(fileName, text) {
     const found = [];
     const visit = (node) => {
         if (isFunction(node)) {
+            const bodyText = bodyTextOf(source, node);
             found.push({
                 node,
                 name: qualifiedName(node),
@@ -129,7 +135,8 @@ export function findFunctions(fileName, text) {
                 endLine: lineOf(source, node.getEnd()),
                 complexity: cyclomaticComplexity(node),
                 nestedRanges: [],
-                bodyHash: bodyHash(source, node)
+                bodyHash: hashOf(bodyText),
+                bodyText
             });
         }
         ts.forEachChild(node, visit);
@@ -142,7 +149,10 @@ export function findFunctions(fileName, text) {
     }
     return numberRepeatedNames(found.map(({ node: _node, ...info }) => info));
 }
-/** Second and later functions with the same name get `#2`, `#3`, ... in source order. */
+/**
+ * Second and later functions with the same name get `#2`, `#3`, ... in source order. The number is
+ * only a label: pairing with the base version matches bodies first (compare.ts).
+ */
 function numberRepeatedNames(functions) {
     const seen = new Map();
     return functions.map((fn) => {

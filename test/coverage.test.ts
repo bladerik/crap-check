@@ -34,7 +34,7 @@ describe('reading coverage', () => {
 });
 
 describe('function coverage', () => {
-	const fn: FunctionInfo = { name: 'f', startLine: 10, endLine: 20, complexity: 2, nestedRanges: [[14, 16]], bodyHash: 'x' };
+	const fn: FunctionInfo = { name: 'f', startLine: 10, endLine: 20, complexity: 2, nestedRanges: [[14, 16]], bodyHash: 'x', bodyText: '' };
 
 	it('counts only the function own lines, not the body of nested functions', () => {
 		const lines = new Map([[11, 1], [12, 0], [15, 0], [21, 0]]);

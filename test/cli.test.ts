@@ -120,14 +120,42 @@ describe('crap-check', () => {
 		expect(output.join('\n')).toContain('no coverage report at lcov.info');
 	});
 
-	it('with --ref judges the pushed commit, not an uncommitted fix in the working tree', () => {
+	it('with --ref judges the pushed commit, and refuses while the package has uncommitted changes', () => {
 		write('src/price.ts', branchy);
 		commit('untested price');
-		write('src/price.ts', 'export function price() {\n\treturn 1;\n}\n');
 		expect(run('--no-run', '--ref', 'HEAD')).toBe(1);
 		expect(output.join('\n')).toContain('`src/price.ts:1` price | ✗ new');
-		expect(output.join('\n')).toMatch(/the working tree differs from HEAD in src\/price\.ts/);
+		write('src/price.ts', 'export function price() {\n\treturn 1;\n}\n');
+		write('src/price.test.ts', "it('covers price', () => {});\n");
+		expect(run('--no-run', '--ref', 'HEAD')).toBe(2);
+		expect(output.join('\n')).toMatch(/uncommitted changes in \. \(.*src\/price\.ts.*\): commit or stash them first/);
 		expect(run('--no-run')).toBe(0); // without --ref the working tree counts
+	});
+
+	it('does not let a same-named callback inserted above an old one pass as the old one', () => {
+		git('checkout', '-q', 'main');
+		const handler = (body: string) => `app.use((req, res) => {\n${body}\n});\n`;
+		const old = handler("\tif (req.a && req.b) return 1;\n\tif (req.c || req.d) return 2;\n\treturn req.e ? 3 : 4;");
+		write('src/routes.ts', old);
+		commit('old handler');
+		git('checkout', '-qb', 'insert');
+		const inserted = handler("\tif (req.x && req.y) return 5;\n\tif (req.z || req.w) return 6;\n\treturn req.v ? 7 : 8;");
+		write('src/routes.ts', inserted + old);
+		commit('insert a new handler above');
+		expect(run('--no-run', '--base', 'main')).toBe(1);
+		expect(output.join('\n')).toContain('app.use(<callback>) | ✗ new');
+	});
+
+	it('treats a copy inside a renamed file as new', () => {
+		git('checkout', '-q', 'main');
+		write('src/legacy.ts', branchy);
+		commit('legacy');
+		git('checkout', '-qb', 'rename-copy');
+		fs.rmSync(path.join(repo, 'src/legacy.ts'));
+		write('src/renamed.ts', `${branchy}\n${branchy.replace('price', 'priceCopy')}`);
+		commit('rename with a copy');
+		expect(run('--no-run', '--base', 'main')).toBe(1);
+		expect(output.join('\n')).toContain('priceCopy | ✗ new');
 	});
 
 	it('scores only files inside a configured package', () => {

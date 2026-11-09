@@ -22,7 +22,7 @@ function f(a, b) {
 		const fns = byName(`
 const outer = (items) => items.map((item) => (item ? 1 : 2));`);
 		expect(fns.outer.complexity).toBe(1);
-		expect(fns['outer/items.map(callback)'].complexity).toBe(2);
+		expect(fns['outer/items.map(<callback>)'].complexity).toBe(2);
 	});
 });
 
@@ -86,11 +86,11 @@ function Component() {
 `
 		).map((fn) => fn.name);
 		expect(names).toEqual([
-			'app.get(callback)',
-			'app.post(callback)',
+			"app.get('/a', <callback>)",
+			"app.post('/b', <callback>)",
 			'Component',
-			'Component/useEffect(callback)',
-			'Component/useEffect(callback)#2'
+			'Component/useEffect(<callback>, [])',
+			'Component/useEffect(<callback>, [x])'
 		]);
 	});
 });

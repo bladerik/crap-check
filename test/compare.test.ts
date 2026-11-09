@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { judge, matchBase, touchedFunctions, type BaseContext, type Measured } from '../src/compare.js';
+import { judge, pairFunctions, similarity, touchedFunctions, type BaseFunction, type Measured } from '../src/compare.js';
+import { findFunctions } from '../src/functions.js';
 import { parseUnifiedDiff, unquoteGitPath } from '../src/git.js';
 
 const fn = (overrides: Partial<Measured> = {}): Measured => ({
@@ -10,16 +11,22 @@ const fn = (overrides: Partial<Measured> = {}): Measured => ({
 	complexity: 8,
 	nestedRanges: [],
 	bodyHash: 'h1',
+	bodyText: '{ return x; }',
 	coverage: 0,
 	crap: 72,
 	...overrides
 });
 
-const context = (sameFile: BaseContext['sameFile'], pool: BaseContext['pool'] = [], atHead: string[] = []): BaseContext => ({
-	sameFile,
-	pool: [...sameFile.map((base) => ({ ...base, file: 'a.ts' })), ...pool],
-	atHead: new Set(atHead)
-});
+const asBase = (source: string): BaseFunction[] =>
+	findFunctions('a.ts', source).map(({ name, bodyHash, bodyText, complexity }) => ({ name, bodyHash, bodyText, complexity }));
+
+/** Which base function name each head function pairs with ('-' when none). */
+function pairedNames(headSource: string, baseSource: string): string[] {
+	const head = findFunctions('a.ts', headSource);
+	const base = asBase(baseSource);
+	const pairs = pairFunctions(head, base);
+	return head.map((f, index) => `${f.name} -> ${pairs.has(index) ? base[pairs.get(index)!].name : '-'}`);
+}
 
 describe('touched functions', () => {
 	it('picks functions containing an added line, including the outer ones', () => {
@@ -30,45 +37,62 @@ describe('touched functions', () => {
 	});
 });
 
-describe('matching the base', () => {
-	const legacy = { name: 'legacy', bodyHash: 'h1', complexity: 8 };
+describe('pairing with base', () => {
+	const effects = `function C() {
+	useEffect(() => { log(); });
+	useEffect(() => { if (a) b(); if (c) d(); if (e) f(); });
+}`;
 
-	it('matches by name in the same file', () => {
-		expect(matchBase(fn({ name: 'legacy' }), context([legacy])).kind).toBe('changed');
+	it('pairs by name when nothing was inserted', () => {
+		expect(pairedNames('function f() { return 2; }', 'function f() { return 1; }')).toEqual(['f -> f']);
 	});
 
-	it('treats an identical body whose original is gone as moved, also from another file', () => {
-		expect(matchBase(fn({ name: 'renamed' }), context([legacy])).kind).toBe('moved');
-		const fromOtherFile = context([], [{ ...legacy, file: 'old.ts' }]);
-		expect(matchBase(fn({ name: 'legacy', file: 'new.ts' }), fromOtherFile).kind).toBe('moved');
+	it('does not let a callback inserted above shift the pairing of the old ones', () => {
+		const head = `function C() {
+	useEffect(() => { track(); });
+	useEffect(() => { log(); });
+	useEffect(() => { if (a) b(); if (c) d(); if (e) g(); });
+}`;
+		expect(pairedNames(head, effects)).toEqual([
+			'C -> C',
+			'C/useEffect(<callback>) -> -',
+			'C/useEffect(<callback>)#2 -> C/useEffect(<callback>)',
+			'C/useEffect(<callback>)#3 -> C/useEffect(<callback>)#2'
+		]);
 	});
 
-	it('treats a copy of a function that still exists as new', () => {
-		expect(matchBase(fn({ name: 'legacyCopy' }), context([legacy], [], ['a.ts::legacy'])).kind).toBe('new');
+	it('tells calls apart by their other arguments', () => {
+		const names = findFunctions('a.ts', "app.get('/a', (r) => 1);\napp.get('/b', (r) => 2);").map((f) => f.name);
+		expect(names).toEqual(["app.get('/a', <callback>)", "app.get('/b', <callback>)"]);
 	});
 
-	it('treats a different body under a new name as new', () => {
-		expect(matchBase(fn({ name: 'fresh', bodyHash: 'h9' }), context([legacy])).kind).toBe('new');
+	it('scores body similarity by shared identifiers', () => {
+		expect(similarity('{ if (a) b(); }', '{ if (a) c(); }')).toBeCloseTo(2 / 4);
+		expect(similarity('{ x }', '{ y }')).toBe(0);
 	});
 });
 
 describe('verdicts', () => {
 	it('passes a new function at or under the threshold and fails one above it', () => {
-		expect(judge(fn({ crap: 30 }), context([]), 30).status).toBe('ok');
-		expect(judge(fn({ crap: 30.1 }), context([]), 30)).toMatchObject({ status: 'fail', kind: 'new' });
+		expect(judge(fn({ crap: 30 }), { kind: 'new' }, 30).status).toBe('ok');
+		expect(judge(fn({ crap: 30.1 }), { kind: 'new' }, 30)).toMatchObject({ status: 'fail', kind: 'new' });
 	});
 
 	it('passes a changed function under the threshold whatever it was before', () => {
-		expect(judge(fn({ crap: 12 }), context([{ name: 'f', bodyHash: 'x', complexity: 2, crap: 2 }]), 30).status).toBe('ok');
+		expect(judge(fn({ crap: 12 }), { kind: 'changed', base: { name: 'f', bodyHash: 'x', complexity: 2 } }, 30).status).toBe('ok');
 	});
 
-	it('only warns about an old function over the threshold that did not get more complex', () => {
-		const base = context([{ name: 'f', bodyHash: 'x', complexity: 8, crap: 20 }]);
-		expect(judge(fn({ crap: 72 }), base, 30)).toMatchObject({ status: 'warn', kind: 'changed' });
+	it('lets through an old function over the threshold that did not get more complex, saying why', () => {
+		const over = judge(fn(), { kind: 'changed', base: { name: 'f', bodyHash: 'x', complexity: 8, crap: 72 } }, 30);
+		expect(over).toMatchObject({ status: 'warn', reason: 'over 30 before too, not more complex' });
+		const lostTests = judge(fn(), { kind: 'changed', base: { name: 'f', bodyHash: 'x', complexity: 8, crap: 8 } }, 30);
+		expect(lostTests.reason).toBe('was CRAP 8.0 in the baseline: it lost coverage, or the related tests miss it');
+		const lower = judge(fn(), { kind: 'changed', base: { name: 'f', bodyHash: 'x', complexity: 8, crap: 40 } }, 30);
+		expect(lower.reason).toMatch(/CRAP rose from 40.0/);
 	});
 
 	it('fails an old function over the threshold that got more complex', () => {
-		const verdict = judge(fn({ complexity: 9, crap: 90 }), context([{ name: 'f', bodyHash: 'x', complexity: 8 }]), 30);
+		const verdict = judge(fn({ complexity: 9, crap: 90 }), { kind: 'changed', base: { name: 'f', bodyHash: 'x', complexity: 8 } }, 30);
 		expect(verdict).toMatchObject({ status: 'fail', reason: 'complexity rose from 8 and CRAP is over 30' });
 	});
 });
