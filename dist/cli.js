@@ -17,6 +17,24 @@ import { jsonReport, markdownReport, topReport } from './report.js';
 import { sourceFileFilter } from './tiers.js';
 class UsageError extends Error {
 }
+const USAGE = `Usage: crap-check [check] [options]   judge the functions the change touches (exit 0 ok, 1 failed, 2 no verdict)
+       crap-check --all [--limit n]      the worst functions of the whole project
+       crap-check baseline [--output f]  store the CRAP of every function at HEAD
+
+Options:
+  --base <ref>       compare with this branch (default: config "base", origin/main)
+  --ref <commit>     judge this commit, not the working tree (pre-push hook)
+  --no-run           read the coverage reports on disk instead of running tests
+  --json             JSON instead of the Markdown table
+  --baseline <file>  use this baseline file
+  --config <file>    another config file (default crap.config.json)
+  -h, --help         this help;  -v, --version  the version
+
+Docs: https://github.com/bladerik/crap-check#readme`;
+function version() {
+    const manifest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../package.json');
+    return JSON.parse(fs.readFileSync(manifest, 'utf8')).version;
+}
 export function parseArgs(argv) {
     const options = { command: 'check', all: false, run: true, format: 'markdown', limit: 20 };
     const valueOf = (index) => {
@@ -29,6 +47,10 @@ export function parseArgs(argv) {
         const arg = argv[i];
         if (arg === 'check' || arg === 'baseline')
             options.command = arg;
+        else if (arg === '--help' || arg === '-h')
+            options.command = 'help';
+        else if (arg === '--version' || arg === '-v')
+            options.command = 'version';
         else if (arg === '--all')
             options.all = true;
         else if (arg === '--no-run')
@@ -142,6 +164,10 @@ function runCheck(root, config, options) {
 export function main(argv) {
     try {
         const options = parseArgs(argv);
+        if (options.command === 'help' || options.command === 'version') {
+            console.log(options.command === 'help' ? USAGE : version());
+            return 0;
+        }
         const root = repoRoot(process.cwd());
         const ref = options.ref;
         const config = loadConfig(root, options.config, ref ? (file) => fileAt(root, ref, file) : undefined);

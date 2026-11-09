@@ -56,6 +56,13 @@ afterEach(() => {
 });
 
 describe('crap-check', () => {
+	it('prints help and the version', () => {
+		expect(run('--help')).toBe(0);
+		expect(output.join('\n')).toContain('Usage: crap-check');
+		expect(run('--version')).toBe(0);
+		expect(output.join('\n')).toMatch(/^\d+\.\d+\.\d+$/);
+	});
+
 	it('passes a change that touches no function', () => {
 		write('README.md', '# Title\n');
 		commit('docs');
