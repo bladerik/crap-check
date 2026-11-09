@@ -1,0 +1,33 @@
+name: Bug
+description: crap-check crashed, or printed a verdict its coverage report contradicts
+labels: [bug]
+body:
+  - type: textarea
+    id: wrong
+    attributes:
+      label: What is wrong
+      description: The row or message, and why it is wrong (for example, the report shows the function ran, yet 0%).
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: >
+        A small git repository: a base commit, the change, crap.config.json and a hand-written lcov.info
+        (run with --no-run) or one tiny test. The command and its full output.
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: crap-check --version, node --version, test runner and coverage provider
+    validations:
+      required: true

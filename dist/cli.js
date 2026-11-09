@@ -171,6 +171,8 @@ function runCheck(root, config, options) {
         return 1;
     return result.incomplete ? 2 : 0;
 }
+/** A programming error inside crap-check, not a usage, git or config problem it reports itself. */
+const isInternal = (error) => error instanceof TypeError || error instanceof RangeError || error instanceof ReferenceError || !(error instanceof Error);
 export function main(argv) {
     try {
         const options = parseArgs(argv);
@@ -187,6 +189,10 @@ export function main(argv) {
     }
     catch (error) {
         console.error(`crap-check: ${error instanceof Error ? error.message : String(error)}`);
+        if (isInternal(error)) {
+            console.error(error instanceof Error ? error.stack : '');
+            console.error('This is a bug in crap-check. Please report it with a small reproduction: https://github.com/bladerik/crap-check/issues');
+        }
         return 2;
     }
 }

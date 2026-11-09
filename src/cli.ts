@@ -177,6 +177,10 @@ function runCheck(root: string, config: Config, options: Options): number {
 	return result.incomplete ? 2 : 0;
 }
 
+/** A programming error inside crap-check, not a usage, git or config problem it reports itself. */
+const isInternal = (error: unknown) =>
+	error instanceof TypeError || error instanceof RangeError || error instanceof ReferenceError || !(error instanceof Error);
+
 export function main(argv: string[]): number {
 	try {
 		const options = parseArgs(argv);
@@ -191,6 +195,10 @@ export function main(argv: string[]): number {
 		return options.all ? runAll(root, config, options) : runCheck(root, config, options);
 	} catch (error) {
 		console.error(`crap-check: ${error instanceof Error ? error.message : String(error)}`);
+		if (isInternal(error)) {
+			console.error(error instanceof Error ? error.stack : '');
+			console.error('This is a bug in crap-check. Please report it with a small reproduction: https://github.com/bladerik/crap-check/issues');
+		}
 		return 2;
 	}
 }

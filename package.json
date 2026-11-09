@@ -4,6 +4,26 @@
 	"description": "CRAP score gate for the functions a change touches in JavaScript and TypeScript projects.",
 	"type": "module",
 	"license": "MIT",
+	"author": "Lukáš (https://github.com/bladerik)",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/bladerik/crap-check.git"
+	},
+	"homepage": "https://github.com/bladerik/crap-check#readme",
+	"bugs": {
+		"url": "https://github.com/bladerik/crap-check/issues"
+	},
+	"keywords": [
+		"crap",
+		"cyclomatic-complexity",
+		"coverage",
+		"code-quality",
+		"pre-push",
+		"typescript",
+		"javascript",
+		"vitest",
+		"jest"
+	],
 	"bin": {
 		"crap-check": "dist/cli.js"
 	},
@@ -30,5 +50,6 @@
 		"@types/picomatch": "^3.0.1",
 		"@vitest/coverage-v8": "^3.2.4",
 		"vitest": "^3.2.4"
-	}
+	},
+	"packageManager": "pnpm@11.22.0"
 }
