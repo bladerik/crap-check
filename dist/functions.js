@@ -43,7 +43,7 @@ const printer = ts.createPrinter({ removeComments: true });
 /** Code of a node for a name: without comments, on one line, at most `max` characters. */
 const shorten = (node, max) => {
     const code = printer.printNode(ts.EmitHint.Unspecified, node, node.getSourceFile());
-    const flat = code.replace(/\s*\n\s*\./g, '.').replace(/\s*\n\s*/g, ' ').trim();
+    const flat = code.replace(/\s*\n\s*\./g, '.').replace(/\.\s*\n\s*/g, '.').replace(/\s*\n\s*/g, ' ').trim();
     return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 };
 /**
@@ -181,6 +181,15 @@ export function findFunctions(fileName, text) {
         outer.nestedRanges = found
             .filter((inner) => inner !== outer && isDirectlyNested(inner.node, outer.node))
             .map((inner) => [inner.startLine, inner.endLine]);
+    }
+    const perLine = new Map();
+    for (const fn of found)
+        perLine.set(fn.startLine, (perLine.get(fn.startLine) ?? 0) + 1);
+    const seenOnLine = new Map();
+    for (const fn of found) {
+        const index = seenOnLine.get(fn.startLine) ?? 0;
+        seenOnLine.set(fn.startLine, index + 1);
+        fn.onLine = { index, count: perLine.get(fn.startLine) ?? 1 };
     }
     return numberRepeatedNames(found.map(({ node: _node, ...info }) => info));
 }

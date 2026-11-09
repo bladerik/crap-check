@@ -246,7 +246,9 @@ chmod +x .githooks/pre-push && git config core.hooksPath .githooks
   => {` runs when the module loads, whether or not the handler ever does). A function missing from
   the report is untested. A function on one line, or with only shared lines, can look run just
   because its module loaded: when the report has function records (LCOV `FN`/`FNDA`, istanbul
-  `fnMap`), one that says it was never called makes it 0%.
+  `fnMap`), one that says it was never called makes it 0%. Vitest's V8 reports leave out anonymous
+  arrow functions, so a never-called one-line arrow on the same line as a called function (a
+  returned `() => x => …`) still looks run there.
 - **Changed:** a function containing an added or modified line. It is paired with its base version
   in the same file by an identical body first, then by name when no function of that name was added
   or removed, then by the most similar body (at least half of the identifiers shared, best pairs

@@ -157,17 +157,19 @@ export function functionCoverage(fn: FunctionInfo, lines: Map<number, number> | 
 const simpleName = (name: string) => (name.includes('(') ? undefined : name.split(/[/.]/).pop());
 
 /**
- * Calls of the function from the report's records on its first line: the record with its name,
- * else the only record there; with several unnamed records, 0 only when none of them was called.
- * Undefined when it cannot tell (no records, or an ambiguous mix).
+ * Calls of the function from the report's records on its first line, or undefined when they cannot
+ * tell. As many records as functions there: they pair in source order. Else the record with its
+ * name. Else 0 only when no record there shows a call. A missing record proves nothing: vitest's V8
+ * reports leave out anonymous arrow functions even when they ran.
  */
 function ownCalls(fn: FunctionInfo, lines: Map<number, number>): number | undefined {
 	const records = lines instanceof FileLines ? lines.calls.get(fn.startLine) : undefined;
 	if (!records || records.size === 0) return undefined;
+	const count = fn.onLine?.count ?? 1;
+	if (count === records.size) return [...records.values()][fn.onLine?.index ?? 0];
 	const name = simpleName(fn.name);
 	const named = [...records].filter(([key]) => name !== undefined && key.replace(/#[^#]*$/, '') === name);
 	if (named.length === 1) return named[0][1];
-	if (records.size === 1) return [...records.values()][0];
 	return [...records.values()].every((hits) => hits === 0) ? 0 : undefined;
 }
 

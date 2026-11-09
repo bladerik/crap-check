@@ -111,6 +111,19 @@ describe('function coverage', () => {
 		expect(functionCoverage({ ...fn, name: 'choose', startLine: 1, endLine: 1, nestedRanges: [], sharedLines: [] }, lines)).toBe(0);
 	});
 
+	it('pairs records with same-line functions in source order (getter and setter, returned callback)', () => {
+		const lcov = 'SF:src/a.ts\nFN:1,get price\nFN:1,set price\nFNDA:0,get price\nFNDA:1,set price\nDA:1,1\nend_of_record\n';
+		const lines = parseLcov(lcov, root).get(path.resolve(root, 'src/a.ts'));
+		const at = (name: string, index: number): FunctionInfo => ({
+			...fn, name, startLine: 1, endLine: 1, nestedRanges: [], sharedLines: [1], onLine: { index, count: 2 }
+		});
+		expect(functionCoverage(at('box.price', 0), lines)).toBe(0);
+		expect(functionCoverage(at('box.price#2', 1), lines)).toBe(1);
+		const node = parseLcov('SF:src/b.ts\nFN:9,build\nFN:9,anonymous_4\nFNDA:1,build\nFNDA:0,anonymous_4\nDA:9,1\nend_of_record\n', root);
+		const callback: FunctionInfo = { ...fn, name: 'build/<anonymous>', startLine: 9, endLine: 9, nestedRanges: [], sharedLines: [9], onLine: { index: 1, count: 2 } };
+		expect(functionCoverage(callback, node.get(path.resolve(root, 'src/b.ts')))).toBe(0);
+	});
+
 	it('treats a function missing from the report as untested', () => {
 		expect(functionCoverage(fn, undefined)).toBe(0);
 		expect(functionCoverage(fn, new Map([[1, 1]]))).toBe(0);

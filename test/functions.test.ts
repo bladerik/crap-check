@@ -96,6 +96,12 @@ function setup(w, script) {
 		expect(names).toEqual(["$('.panel .button').on('click', <callback>)", "$('.panel.button').on('click', <callback>)"]);
 	});
 
+	it('names a callback the same when its call is wrapped after a dot', () => {
+		const one = findFunctions('a.ts', "app.get('/x', (req) => 1);")[0].name;
+		const wrapped = findFunctions('a.ts', "app.\n\tget('/x', (req) => 1);")[0].name;
+		expect(wrapped).toBe(one);
+	});
+
 	it('keeps comments and line breaks out of callback names', () => {
 		const names = findFunctions(
 			'a.ts',
